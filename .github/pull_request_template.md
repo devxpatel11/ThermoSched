@@ -29,4 +29,4 @@ Exact full command and observed result
 - [ ] No generated logs, environments, secrets, or absolute user paths
 - [ ] Measured, simulated, and derived values retain provenance
 - [ ] Managed-process safety and cleanup paths are covered where applicable
-- [ ] Relevant owner review is complete
+- [ ] Required CI passes and all review conversations are resolved

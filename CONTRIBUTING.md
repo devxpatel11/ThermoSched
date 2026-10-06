@@ -60,6 +60,8 @@ A PR must:
 - report hardware-dependent checks as passed, failed, or skipped with a reason;
 - contain no generated logs, environment folders, secrets, or absolute user paths.
 
+Repository collaborators with write access may merge a PR when its required CI check passes, the branch is current with `main`, and review conversations are resolved. A separate approval is encouraged for shared-contract or safety-sensitive changes but is not required by branch protection.
+
 Before requesting review, other member task branches update by rebasing:
 
 ```bash
@@ -74,7 +76,7 @@ Use task-oriented Conventional Commit messages, for example `feat(policy): add t
 
 ## Merge queue
 
-Merge only green, reviewed PRs in dependency order. Person A work is submitted from `devpatel`; A1 lands first. Independent C1 may develop in parallel; B1 may prototype in parallel but must rebase onto A1 before merging. Later tasks merge only after every dependency in `docs/work_plan.md` is on `main`.
+Merge only green PRs in dependency order. Any collaborator with write access may use the merge option after all required checks pass. Person A work is submitted from `devpatel`; A1 lands first. Independent C1 may develop in parallel; B1 may prototype in parallel but must rebase onto A1 before merging. Later tasks merge only after every dependency in `docs/work_plan.md` is on `main`.
 
 After each merge, wait for `main` CI before merging the next PR. The next branch rebases onto that green commit. If two PRs touch the same file, the documented owner merges first and the second owner rebases and resolves the conflict with them before review.
 

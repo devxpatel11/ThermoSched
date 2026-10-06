@@ -25,6 +25,8 @@ Do not treat a command from the project playbook as implemented until the corres
 4. Follow [the contribution and integration rules](CONTRIBUTING.md).
 5. Use the branch assigned to your task; do not implement directly on `main`. All Person A work uses the persistent `devpatel` branch exclusively.
 
+Collaborators with write access may merge a pull request once required CI passes, the branch is current with `main`, and review conversations are resolved. Branch protection does not require a separate approval.
+
 The agreed repository baseline is Python 3.12. Code must remain compatible with Python 3.10 or newer, and CI checks the minimum supported version.
 
 Inside Ubuntu WSL 2, install and validate the current scaffold with:
