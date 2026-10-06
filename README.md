@@ -23,7 +23,7 @@ Do not treat a command from the project playbook as implemented until the corres
 2. Record E0 evidence in [the environment matrix](docs/environment_matrix.md) before feature work.
 3. Read [the work plan](docs/work_plan.md) for ownership and dependencies.
 4. Follow [the contribution and integration rules](CONTRIBUTING.md).
-5. Create the branch assigned to your task; do not implement directly on `main`.
+5. Use the branch assigned to your task; do not implement directly on `main`. All Person A work uses the persistent `devpatel` branch exclusively.
 
 The agreed repository baseline is Python 3.12. Code must remain compatible with Python 3.10 or newer, and CI checks the minimum supported version.
 
