@@ -1,0 +1,6 @@
+scenario: demo_all_hot
+description: Micro-break pacing scenario when all candidate CPUs exceed thermal threshold.
+eligible_cpus: [0, 1, 2, 3]
+temperature_threshold_celsius: 80.0
+pacing_microbreak_ms: 200
+poll_interval_seconds: 1.0

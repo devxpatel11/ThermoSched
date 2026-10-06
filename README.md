@@ -41,3 +41,6 @@ python scripts/compare_runs.py --baseline logs/baseline.csv --aware logs/aware.c
 ```
 
 The final README will be reconciled against the frozen implementation by D5-C5. Until then, each PR updates only the commands and status it actually changes.
+
+## Progress Checklist
+- [x] D1-C1: complete
