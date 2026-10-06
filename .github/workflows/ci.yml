@@ -1,0 +1,57 @@
+name: Repository gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repository-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Check repository hygiene
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git diff --check "origin/$GITHUB_BASE_REF...HEAD"
+          else
+            git show --check --format= HEAD
+          fi
+          forbidden="$(git ls-files | grep -E '(^|/)(\.venv|venv|__pycache__|logs|results)(/|$)|\.py[co]$' || true)"
+          if [ -n "$forbidden" ]; then
+            echo "Generated files are tracked:"
+            echo "$forbidden"
+            exit 1
+          fi
+
+      - name: Install project dependencies when available
+        shell: bash
+        run: |
+          if [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            python -m pip install -r requirements.txt
+          fi
+
+      - name: Validate package and tests when available
+        shell: bash
+        run: |
+          if [ -d thermosched ]; then
+            python -m compileall -q thermosched
+            python -c "import thermosched"
+          fi
+          if find tests -type f -name 'test_*.py' -print -quit 2>/dev/null | grep -q .; then
+            python -m pytest -q
+          else
+            echo "No tests yet; D1-A1 will add the first testable package contracts."
+          fi
