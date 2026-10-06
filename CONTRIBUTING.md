@@ -4,7 +4,18 @@
 
 Each member must complete their E0 row in `docs/environment_matrix.md` from Ubuntu WSL 2. Record actual results; use `N/A`, `failed`, or `skipped: <reason>` instead of assuming a capability exists.
 
-Start every task from current `main`:
+Person A uses the persistent `devpatel` branch for every `D*-A*` task. Do not create separate Person A feature branches. Start or resume Person A work with:
+
+```bash
+git switch devpatel
+git fetch origin
+git merge --no-edit origin/main
+git push origin devpatel
+```
+
+The merge step synchronizes a prior squash-merged PR without rewriting the persistent branch. Person A keeps each task in its own task-oriented commit and maintains one active `devpatel` to `main` PR. Complete A tasks in dependency order.
+
+All other members start each task from current `main`:
 
 ```bash
 git switch main
@@ -12,7 +23,7 @@ git pull --ff-only origin main
 git switch -c <branch-from-docs/work_plan.md>
 ```
 
-One branch and one pull request must contain exactly one task ID. Direct feature pushes to `main` are prohibited after the foundation commit.
+Except for the designated persistent Person A branch, one branch and one pull request must contain exactly one task ID. A `devpatel` PR may contain sequential completed Person A task commits. Direct feature pushes to `main` are prohibited after the foundation commit.
 
 ## File ownership
 
@@ -49,7 +60,9 @@ A PR must:
 - report hardware-dependent checks as passed, failed, or skipped with a reason;
 - contain no generated logs, environment folders, secrets, or absolute user paths.
 
-Before requesting review, update your branch without merging `main` into it:
+Repository collaborators with write access may merge a PR when its required CI check passes, the branch is current with `main`, and review conversations are resolved. A separate approval is encouraged for shared-contract or safety-sensitive changes but is not required by branch protection.
+
+Before requesting review, other member task branches update by rebasing:
 
 ```bash
 git fetch origin
@@ -57,11 +70,13 @@ git rebase origin/main
 python -m pytest -q
 ```
 
+Person A instead uses the persistent-branch synchronization command above and must not force-push `devpatel` merely to imitate a new feature branch.
+
 Use task-oriented Conventional Commit messages, for example `feat(policy): add thermal risk scoring` or `test(controller): cover process cleanup`. The repository uses squash merges so each task lands as one reviewable commit.
 
 ## Merge queue
 
-Merge only green, reviewed PRs in dependency order. A1 lands first. Independent C1 may develop in parallel; B1 may prototype in parallel but must rebase onto A1 before merging. Later tasks merge only after every dependency in `docs/work_plan.md` is on `main`.
+Merge only green PRs in dependency order. Any collaborator with write access may use the merge option after all required checks pass. Person A work is submitted from `devpatel`; A1 lands first. Independent C1 may develop in parallel; B1 may prototype in parallel but must rebase onto A1 before merging. Later tasks merge only after every dependency in `docs/work_plan.md` is on `main`.
 
 After each merge, wait for `main` CI before merging the next PR. The next branch rebases onto that green commit. If two PRs touch the same file, the documented owner merges first and the second owner rebases and resolves the conflict with them before review.
 

@@ -1,0 +1,24 @@
+sampling_interval_s: 0.5
+warm_temp_c: 60.0
+high_temp_c: 75.0
+critical_temp_c: 82.0
+hysteresis_c: 3.0
+confirmation_samples: 2
+min_residency_s: 2.0
+migration_cooldown_s: 1.5
+min_destination_improvement: 0.15
+microbreak_ms: 150
+max_microbreak_ms: 250
+high_risk: 0.75
+critical_risk: 0.90
+risk_hysteresis: 0.05
+trend_scale_c_per_s: 5.0
+risk_weights:
+  thermal: 0.55
+  utilization: 0.30
+  trend: 0.15
+simulation:
+  ambient_c: 42.0
+  heat_gain_per_s: 2.0
+  cooling_per_s: 1.25
+  throttle_temp_c: 85.0

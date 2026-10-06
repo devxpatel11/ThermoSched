@@ -1,6 +1,6 @@
 ## Task
 
-- Task ID:
+- Task ID(s): one, except sequential Person A tasks from the designated `devpatel` branch
 - Owner:
 - Depends on merged PRs/commits:
 
@@ -22,11 +22,11 @@ Exact full command and observed result
 
 ## Merge checklist
 
-- [ ] One task ID and owned paths only
+- [ ] One task ID and owned paths only, or sequential Person A tasks on `devpatel`
 - [ ] Rebased onto current `origin/main`
 - [ ] Focused tests pass
 - [ ] `python -m pytest -q` passes, or tests do not exist yet and the reason is stated
 - [ ] No generated logs, environments, secrets, or absolute user paths
 - [ ] Measured, simulated, and derived values retain provenance
 - [ ] Managed-process safety and cleanup paths are covered where applicable
-- [ ] Relevant owner review is complete
+- [ ] Required CI passes and all review conversations are resolved
