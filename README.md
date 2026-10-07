@@ -4,7 +4,7 @@ ThermoSched is a six-day Operating Systems project for a Linux user-space CPU th
 
 ## Current status
 
-The shared repository foundation, D1-A1 contracts, and D2-A2 pure policy are implemented. Sensor backends, telemetry, workloads, scenario fixtures, actuation, orchestration, and demo scripts remain assigned work in [docs/work_plan.md](docs/work_plan.md).
+The shared repository foundation and Member A tasks D1-A1 through D4-A4 are implemented. A3 provides guarded Linux child actuation. A4 provides the dependency-injected controller and explicit WSL simulation adapters; the assigned B/C production sensor, telemetry, logging/dashboard, workload, and CLI modules remain separate work in [docs/work_plan.md](docs/work_plan.md).
 
 Do not treat a command from the project playbook as implemented until the corresponding files are merged into `main` and CI passes.
 
@@ -58,12 +58,33 @@ Risk combines normalized thermal state, CPU utilization, and positive thermal tr
 
 Candidate CPU IDs are WSL guest virtual CPUs. Policy output does not prove physical Windows-core placement, and risk remains a modeled/derived scheduling signal rather than measured host temperature. A controller must map fixture IDs to the managed child's original eligible mask and call `record_migration()` only after successful affinity readback.
 
-## Planned command contract
+## Managed Linux actuation
 
-Only `python -m thermosched --help` and `--version` are implemented by A1. The following commands remain targets for their assigned implementation tasks:
+`LinuxActuator` accepts only a direct child of the current controller with the same Linux UID. Registration records its PID, creation time, parent, owner, and full original affinity mask. Every operation rechecks that identity to reject PID reuse. PID 0, PID 1, the controller, the parent shell, unregistered processes, and CPUs outside the captured eligible guest mask are rejected.
+
+Affinity changes require exact readback. Pacing uses bounded `SIGSTOP`/`SIGCONT`, and cleanup resumes the child before restoring its original mask. Handled exceptions, SIGINT, and SIGTERM run restoration. SIGKILL, forced WSL termination, Windows shutdown, and VM failure cannot execute Python cleanup; after such an event, terminate the disposable workload or restart WSL before another run.
+
+## A4 integrated WSL simulation
+
+Run these commands inside the Ubuntu repository virtual environment. `doctor` reports guest CPU scope, model mapping, simulated thermal provenance, backend names, and actuator capability:
 
 ```bash
-python -m thermosched doctor
+python -m thermosched.demo doctor
+python -m thermosched.demo run --scenario migration --config config/demo_migration.yaml --duration 5
+python -m thermosched.demo run --scenario all-hot --config config/demo_all_hot.yaml --duration 5
+```
+
+Each run launches its own disposable Linux child. The migration scenario requires at least two eligible guest CPUs and reports unsupported status otherwise. The all-hot scenario requests bounded pacing and verifies resume. JSON Lines events record original/requested/observed masks, requested versus applied action, backend, environment, eligible guest CPUs, and `simulated_c` provenance. Generated evidence is written under `results/` and is ignored by Git.
+
+The simulation model is coupled to the managed child's assignment and observed duty cycle. Its values are modeled guest inputs, not measured per-core or Windows-host temperatures. The 300-second automated soak uses an injected fixed clock and synthetic telemetry; it is separate from live wall-clock utilization runs and makes no repeatability claim about them.
+
+Member A's recorded WSL acceptance run also completed a separate 300-second wall-clock migration soak: 3,000 samples, one verified guest-CPU migration, zero failures, and exact restoration of the original affinity mask.
+
+## Remaining planned command contract
+
+The general launch, workload, and comparison commands remain targets for their assigned B/C tasks:
+
+```bash
 python -m thermosched launch --mode simulate --config config/demo_migration.yaml -- python workloads/cpu_burn.py --seconds 60
 python -m thermosched launch --mode simulate --config config/demo_all_hot.yaml -- python workloads/cpu_burn.py --seconds 60
 bash scripts/run_demo.sh
@@ -76,3 +97,5 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 
 - D1-A1: complete — `python -m pytest -q`
 - D2-A2: complete — `python -m pytest -q tests/test_policy.py`, then `python -m pytest -q`
+- D3-A3: complete — `python -m pytest -q tests/test_safety.py tests/test_linux_actuator.py`, then `python -m pytest -q`
+- D4-A4: complete — `python -m pytest -q tests/test_controller.py`, then `python -m pytest -q`; live WSL runs use both named demo configs

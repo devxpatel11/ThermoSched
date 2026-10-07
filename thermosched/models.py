@@ -227,6 +227,12 @@ class CpuIdMap:
         except KeyError as exc:
             raise ValueError(f"model CPU {model_cpu} has no eligible guest mapping") from exc
 
+    def model_cpu(self, guest_cpu: int) -> int:
+        try:
+            return {guest: model for model, guest in self.pairs}[guest_cpu]
+        except KeyError as exc:
+            raise ValueError(f"guest CPU {guest_cpu} has no model CPU mapping") from exc
+
     @property
     def eligible_guest_cpus(self) -> tuple[int, ...]:
         return tuple(guest for _, guest in self.pairs)
