@@ -27,7 +27,7 @@ class EventLogger:
 
     def log_event(self, event_type: str, data: Dict[str, Any]) -> None:
         timestamp = data.get("timestamp", time.time())
-        
+
         # Write CSV row
         with open(self.csv_path, "a", newline="") as f:
             writer = csv.writer(f)
