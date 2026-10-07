@@ -80,3 +80,8 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 ## Progress Checklist
 
 - [x] D1-C1: complete
+
+## Progress Checklist
+- [x] D1-C1: complete
+- [x] D2-C2: complete
+- [x] D3-C3: complete
