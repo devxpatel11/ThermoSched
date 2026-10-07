@@ -40,6 +40,8 @@ def test_requested_cpu_must_be_inside_original_eligible_mask() -> None:
     assert validate_requested_cpus(target, [7]) == (7,)
     with pytest.raises(SafetyViolation, match="outside the eligible guest mask"):
         validate_requested_cpus(target, [0])
+    with pytest.raises(SafetyViolation, match="duplicate"):
+        validate_requested_cpus(target, [2, 2])
 
 
 def test_eligible_mask_must_be_within_original_affinity() -> None:

@@ -170,6 +170,9 @@ class ManagedProcess:
     pid: int
     original_affinity: tuple[int, ...]
     eligible_guest_cpus: tuple[int, ...]
+    create_time_s: float | None = None
+    owner_uid: int | None = None
+    parent_pid: int | None = None
 
     def __post_init__(self) -> None:
         if self.pid <= 1:
@@ -186,6 +189,14 @@ class ManagedProcess:
             raise ValueError("managed process CPU IDs must be unique")
         if not set(eligible).issubset(original):
             raise ValueError("eligible guest CPUs must be within original affinity")
+        if self.create_time_s is not None:
+            _finite(self.create_time_s, "create_time_s")
+            if self.create_time_s < 0:
+                raise ValueError("create_time_s must be non-negative")
+        if self.owner_uid is not None and self.owner_uid < 0:
+            raise ValueError("owner_uid must be non-negative")
+        if self.parent_pid is not None and self.parent_pid <= 0:
+            raise ValueError("parent_pid must be positive")
 
 
 @dataclass(frozen=True, slots=True)
