@@ -1,6 +1,6 @@
 # ThermoSched
 
-ThermoSched is a six-day Operating Systems project for a Linux user-space CPU thermal-pacing controller. The team keeps Windows as the host OS and develops and demonstrates the project inside Ubuntu WSL 2.
+ThermoSched is an Operating Systems project for a Linux user-space CPU thermal-pacing controller. The project keeps Windows as the host OS and develops and demonstrates the project inside Ubuntu WSL 2.
 
 ## Current status
 
