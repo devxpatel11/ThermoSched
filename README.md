@@ -76,3 +76,7 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 
 - D1-A1: complete — `python -m pytest -q`
 - D2-A2: complete — `python -m pytest -q tests/test_policy.py`, then `python -m pytest -q`
+
+## Progress Checklist
+
+- [x] D1-C1: complete
