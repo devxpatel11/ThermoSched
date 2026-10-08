@@ -4,7 +4,7 @@ ThermoSched is an Operating Systems project for a Linux user-space CPU thermal-p
 
 ## Current status
 
-The shared repository foundation, D1-A1 contracts, and D2-A2 pure policy are implemented. Sensor backends, telemetry, workloads, scenario fixtures, actuation, orchestration, and demo scripts remain assigned work in [docs/work_plan.md](docs/work_plan.md).
+The shared repository foundation, D1-A1 contracts, D2-A2 pure policy, D1-B1 Linux thermal sensor discovery, and D2-B2 CPU telemetry are implemented. Workload generators, scenario fixtures, actuation, orchestration, and demo scripts remain assigned work in [docs/work_plan.md](docs/work_plan.md). WSL E0 environment evidence still needs to be recorded by each member.
 
 Do not treat a command from the project playbook as implemented until the corresponding files are merged into `main` and CI passes.
 
@@ -49,6 +49,16 @@ Routine commands require no root privileges. `config/default.yaml` contains demo
 - `thermosched.scheduler.actuator.Actuator` separates OS mechanisms from policy.
 - `ManagedPidRegistry` issues targets only for explicitly registered child PIDs and validates requested CPUs against their original eligible guest mask.
 - Measured Celsius, simulated Celsius, and derived risk remain distinct provenance values.
+
+## Linux thermal sensor discovery
+
+`thermosched.sensors.discover_linux_thermal_sensors()` performs read-only discovery under `/sys/class/thermal` and `/sys/class/hwmon`. It returns each source path, sensor name, availability, Celsius value, and a conservative scope label (`package`, `core`, `zone`, or `unknown`). The parser recognizes the Linux thermal-zone and hwmon `temp*_input` millidegree-Celsius semantics; missing, inaccessible, and malformed inputs are reported without inventing readings. `format_sensor_inventory()` renders the same paths and scope for a future doctor/debug command.
+
+WSL may expose no thermal sensors, or only package/zone-level readings. Such a reading is not per-core or Windows-host temperature. Explicit simulation must continue to work without sensors; a future real-mode command should report a clear unsupported-source error when no suitable sensor is available. Current sensor discovery returns source-aware inventory; it does not yet adapt package readings into the per-core `ThermalSnapshot` contract.
+
+## CPU telemetry
+
+`thermosched.telemetry.CpuTelemetryCollector` produces one timestamped snapshot with guest logical-CPU utilization, eligible CPU IDs, and optional state for a registered same-user direct child. The first nonblocking psutil sample is marked `priming` and has no utilization value. Process utilization can exceed 100% for multi-threaded workloads and is kept unclamped. Missing processes, PID reuse, and access failures have explicit statuses. Original and current affinity masks are observational; this collector does not change affinity or pause processes. `TemperatureTrend` calculates per-CPU Celsius-per-second changes from timestamped readings, while `ExponentialMovingAverage` supports rolling intensity. WSL CPU IDs describe guest virtual CPUs, not Windows physical-core topology.
 
 ## Pure scheduling policy
 
