@@ -4,7 +4,7 @@ ThermoSched is an Operating Systems project for a Linux user-space CPU thermal-p
 
 ## Current status
 
-The shared repository foundation, D1-A1 contracts, and D2-A2 pure policy are implemented. Sensor backends, telemetry, workloads, scenario fixtures, actuation, orchestration, and demo scripts remain assigned work in [docs/work_plan.md](docs/work_plan.md).
+The shared repository foundation, D1-A1 contracts, D2-A2 pure policy, and D1-B1 Linux thermal sensor discovery are implemented. Per-CPU telemetry, workload generators, scenario fixtures, actuation, orchestration, and demo scripts remain assigned work in [docs/work_plan.md](docs/work_plan.md). WSL E0 environment evidence still needs to be recorded by each member.
 
 Do not treat a command from the project playbook as implemented until the corresponding files are merged into `main` and CI passes.
 
@@ -50,6 +50,12 @@ Routine commands require no root privileges. `config/default.yaml` contains demo
 - `ManagedPidRegistry` issues targets only for explicitly registered child PIDs and validates requested CPUs against their original eligible guest mask.
 - Measured Celsius, simulated Celsius, and derived risk remain distinct provenance values.
 
+## Linux thermal sensor discovery
+
+`thermosched.sensors.discover_linux_thermal_sensors()` performs read-only discovery under `/sys/class/thermal` and `/sys/class/hwmon`. It returns each source path, sensor name, availability, Celsius value, and a conservative scope label (`package`, `core`, `zone`, or `unknown`). The parser recognizes the Linux thermal-zone and hwmon `temp*_input` millidegree-Celsius semantics; missing, inaccessible, and malformed inputs are reported without inventing readings. `format_sensor_inventory()` renders the same paths and scope for a future doctor/debug command.
+
+WSL may expose no thermal sensors, or only package/zone-level readings. Such a reading is not per-core or Windows-host temperature. Explicit simulation must continue to work without sensors; a future real-mode command should report a clear unsupported-source error when no suitable sensor is available. Current sensor discovery returns source-aware inventory; it does not yet adapt package readings into the per-core `ThermalSnapshot` contract.
+
 ## Pure scheduling policy
 
 `thermosched.scheduler.policy.evaluate_policy()` accepts a fixed thermal snapshot, process sample, policy state, monotonic timestamp, configuration, and eligible guest CPU mask. It returns a decision and next policy state without reading hardware, sleeping, or calling OS APIs.
@@ -76,3 +82,4 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 
 - D1-A1: complete — `python -m pytest -q`
 - D2-A2: complete — `python -m pytest -q tests/test_policy.py`, then `python -m pytest -q`
+- D1-B1: complete — `.venv/bin/python -m pytest -q tests/test_sensors.py`, then `.venv/bin/python -m pytest -q`; WSL reported no thermal inputs and the backend degraded explicitly.
