@@ -126,6 +126,45 @@ def test_registration_rejects_non_child_process() -> None:
         collector.register_child(process.pid)
 
 
+def test_registration_reports_a_process_that_disappears_during_lookup() -> None:
+    def missing(pid: int) -> FakeProcess:
+        raise psutil.NoSuchProcess(pid)
+
+    collector = CpuTelemetryCollector(process_factory=missing)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="NoSuchProcess"):
+        collector.register_child(9001)
+
+
+def test_invalid_process_utilization_degrades_to_inaccessible() -> None:
+    process = FakeProcess()
+    process.cpu_values = iter(["invalid"])  # type: ignore[list-item]
+    collector = _collector(process, [[1.0] * 8])
+    collector.register_child(process.pid)
+
+    snapshot = collector.sample()
+
+    assert snapshot.process is not None
+    assert snapshot.process.status == "inaccessible"
+    assert snapshot.process.as_process_sample() is None
+
+
+def test_out_of_range_per_cpu_utilization_is_unavailable() -> None:
+    process = FakeProcess()
+    collector = _collector(
+        process,
+        [[0.0] * 8, [101.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0]],
+    )
+    collector.register_child(process.pid)
+    collector.sample()
+
+    snapshot = collector.sample()
+
+    assert snapshot.per_cpu[0].status == "unavailable"
+    assert snapshot.per_cpu[0].utilization_pct is None
+    assert snapshot.cpu_status == "available"
+
+
 def test_cpu_reader_failure_is_an_unavailable_snapshot() -> None:
     collector = CpuTelemetryCollector(cpu_reader=lambda: (_ for _ in ()).throw(psutil.AccessDenied()))
 

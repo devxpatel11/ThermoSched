@@ -29,9 +29,10 @@ class CpuUtilization:
         if self.status not in {"priming", "available", "unavailable"}:
             raise ValueError("invalid CPU utilization status")
         if self.utilization_pct is not None and (
-            not math.isfinite(self.utilization_pct) or self.utilization_pct < 0
+            not math.isfinite(self.utilization_pct)
+            or not 0 <= self.utilization_pct <= 100
         ):
-            raise ValueError("utilization_pct must be finite and non-negative")
+            raise ValueError("utilization_pct must be finite and between 0 and 100")
         if (self.status == "available") != (self.utilization_pct is not None):
             raise ValueError("available status requires a value; other statuses require None")
 
@@ -189,8 +190,8 @@ class CpuTelemetryCollector:
 
         if pid <= 1 or pid == os.getpid():
             raise ValueError("PID is not an eligible managed child")
-        process = self._process_factory(pid)
         try:
+            process = self._process_factory(pid)
             if process.ppid() != os.getpid():
                 raise ValueError("managed telemetry accepts only direct child processes")
             if hasattr(process, "uids") and process.uids().real != os.getuid():
@@ -199,7 +200,7 @@ class CpuTelemetryCollector:
             affinity = tuple(sorted(process.cpu_affinity()))
             if not affinity:
                 raise ValueError("managed child has an empty original CPU mask")
-        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError) as exc:
             raise ValueError(f"cannot register managed child {pid}: {exc.__class__.__name__}") from exc
         except (AttributeError, NotImplementedError) as exc:
             raise RuntimeError("process affinity telemetry is unavailable on this platform") from exc
@@ -260,7 +261,14 @@ class CpuTelemetryCollector:
             return self._process_state(utilization, affinity, current_cpu, True, "available"), intensity
         except psutil.NoSuchProcess:
             return self._process_state(None, None, None, False, "exited"), None
-        except (psutil.AccessDenied, OSError):
+        except (
+            psutil.AccessDenied,
+            OSError,
+            TypeError,
+            ValueError,
+            AttributeError,
+            NotImplementedError,
+        ):
             return self._process_state(None, None, None, None, "inaccessible"), None
 
     def _process_state(
