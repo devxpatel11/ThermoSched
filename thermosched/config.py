@@ -64,6 +64,9 @@ class SimulationConfig:
     heat_gain_per_s: float = 2.0
     cooling_per_s: float = 1.25
     throttle_temp_c: float = 85.0
+    initial_temps_c: tuple[float, ...] = ()
+    initial_jitter_c: float = 0.0
+    seed: int = 0
 
     def __post_init__(self) -> None:
         values = (
@@ -71,6 +74,7 @@ class SimulationConfig:
             self.heat_gain_per_s,
             self.cooling_per_s,
             self.throttle_temp_c,
+            self.initial_jitter_c,
         )
         if any(not math.isfinite(value) for value in values):
             raise ConfigError("simulation values must be finite")
@@ -78,6 +82,18 @@ class SimulationConfig:
             raise ConfigError("simulation heating and cooling rates must be non-negative")
         if self.throttle_temp_c <= self.ambient_c:
             raise ConfigError("simulation throttle_temp_c must exceed ambient_c")
+        if self.initial_jitter_c < 0:
+            raise ConfigError("simulation initial_jitter_c must be non-negative")
+        if self.initial_jitter_c > self.throttle_temp_c - self.ambient_c:
+            raise ConfigError("simulation initial_jitter_c exceeds the thermal bounds")
+        initial_temps = tuple(self.initial_temps_c)
+        object.__setattr__(self, "initial_temps_c", initial_temps)
+        if any(isinstance(value, bool) or not math.isfinite(value) for value in initial_temps):
+            raise ConfigError("simulation initial temperatures must be finite")
+        if any(not self.ambient_c <= value <= self.throttle_temp_c for value in initial_temps):
+            raise ConfigError("simulation initial temperatures must be within ambient and throttle bounds")
+        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+            raise ConfigError("simulation seed must be a non-negative integer")
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +168,20 @@ def _simulation(data: Any) -> SimulationConfig:
     values = _mapping(data, "simulation")
     allowed = {field.name for field in fields(SimulationConfig)}
     _reject_unknown(values, allowed, "simulation")
-    return SimulationConfig(**{key: _number(value, f"simulation.{key}") for key, value in values.items()})
+    converted: dict[str, Any] = {}
+    for key, value in values.items():
+        if key == "initial_temps_c":
+            if not isinstance(value, (list, tuple)):
+                raise ConfigError("simulation.initial_temps_c must be a list of temperatures")
+            converted[key] = tuple(
+                _number(temp, f"simulation.initial_temps_c[{index}]")
+                for index, temp in enumerate(value)
+            )
+        elif key == "seed":
+            converted[key] = _integer(value, "simulation.seed")
+        else:
+            converted[key] = _number(value, f"simulation.{key}")
+    return SimulationConfig(**converted)
 
 
 def config_from_mapping(data: dict[str, Any]) -> SchedulerConfig:
