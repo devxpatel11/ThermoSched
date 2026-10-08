@@ -1,0 +1,15 @@
+sampling_interval_s: 0.5
+warm_temp_c: 60.0
+high_temp_c: 75.0
+critical_temp_c: 82.0
+confirmation_samples: 1
+min_residency_s: 0.0
+migration_cooldown_s: 0.0
+simulation:
+  ambient_c: 42.0
+  heat_gain_per_s: 2.0
+  cooling_per_s: 1.25
+  throttle_temp_c: 85.0
+  initial_temps_c: [80.0, 64.0]
+  initial_jitter_c: 0.0
+  seed: 31
