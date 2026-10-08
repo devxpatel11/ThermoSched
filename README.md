@@ -86,5 +86,12 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 
 - D1-A1: complete — `python -m pytest -q`
 - D2-A2: complete — `python -m pytest -q tests/test_policy.py`, then `python -m pytest -q`
-- D1-B1: complete — `.venv/bin/python -m pytest -q tests/test_sensors.py`, then `.venv/bin/python -m pytest -q`; WSL reported no thermal inputs and the backend degraded explicitly.
-- D2-B2: complete — `.venv/bin/python -m pytest -q tests/test_telemetry.py` (11 passed), then `.venv/bin/python -m pytest -q` (58 passed); live WSL child telemetry preserved the original 20-CPU guest mask.
+
+## Progress Checklist
+
+- [x] D1-C1: complete
+
+## Progress Checklist
+- [x] D1-C1: complete
+- [x] D2-C2: complete
+- [x] D3-C3: complete
