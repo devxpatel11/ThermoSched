@@ -113,11 +113,21 @@ class SimulatedThermalSensor(SensorProvider):
         scales only that workload's mapped CPU load; a pause removes its load.
         """
 
-        if not math.isfinite(sampled_at_s) or sampled_at_s < 0:
+        if (
+            isinstance(sampled_at_s, bool)
+            or not isinstance(sampled_at_s, (int, float))
+            or not math.isfinite(sampled_at_s)
+            or sampled_at_s < 0
+        ):
             raise ValueError("sampled_at_s must be finite and non-negative")
         if self._last_sampled_at_s is not None and sampled_at_s <= self._last_sampled_at_s:
             raise ValueError("sample timestamps must increase")
-        if not math.isfinite(duty_cycle) or not 0.0 <= duty_cycle <= 1.0:
+        if (
+            isinstance(duty_cycle, bool)
+            or not isinstance(duty_cycle, (int, float))
+            or not math.isfinite(duty_cycle)
+            or not 0.0 <= duty_cycle <= 1.0
+        ):
             raise ValueError("duty_cycle must be between 0 and 1")
         eligible = self.cpu_id_map.eligible_guest_cpus
         if assigned_cpu is not None and assigned_cpu not in eligible:

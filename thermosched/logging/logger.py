@@ -1,47 +1,50 @@
+"""CSV and JSONL event logging with explicit thermal provenance."""
+
+from __future__ import annotations
+
 import csv
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
+
+
+CSV_FIELDS = (
+    "timestamp",
+    "event_type",
+    "cpu_id",
+    "temp_measured",
+    "temp_simulated",
+    "thermal_provenance",
+    "risk_score",
+    "backend",
+    "eligible_guest_cpus",
+    "requested_action",
+    "applied_action",
+)
 
 
 class EventLogger:
-    """Logs thermal pacing events to CSV and JSONL formats."""
+    """Append controller events to one CSV file and one JSONL file."""
 
-    def __init__(self, log_dir: str = "logs", run_id: Optional[str] = None):
+    def __init__(self, log_dir: str | Path = "logs", run_id: str | None = None) -> None:
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.run_id = run_id or f"run_{int(time.time())}"
+        self.run_id = run_id or f"run_{time.time_ns()}"
+        if Path(self.run_id).name != self.run_id or self.run_id in {"", ".", ".."}:
+            raise ValueError("run_id must be a plain file name")
         self.csv_path = self.log_dir / f"{self.run_id}.csv"
         self.jsonl_path = self.log_dir / f"{self.run_id}.jsonl"
-        self._init_csv()
-
-    def _init_csv(self) -> None:
         if not self.csv_path.exists():
-            with open(self.csv_path, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    "timestamp", "event_type", "cpu_id",
-                    "temp_measured", "temp_simulated", "risk_score", "action"
-                ])
+            with self.csv_path.open("w", encoding="utf-8", newline="") as stream:
+                csv.writer(stream).writerow(CSV_FIELDS)
 
-    def log_event(self, event_type: str, data: Dict[str, Any]) -> None:
+    def log_event(self, event_type: str, data: dict[str, Any]) -> None:
+        if not isinstance(event_type, str) or not event_type.strip():
+            raise ValueError("event_type must not be empty")
         timestamp = data.get("timestamp", time.time())
-
-        # Write CSV row
-        with open(self.csv_path, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                timestamp,
-                event_type,
-                data.get("cpu_id", ""),
-                data.get("temp_measured", ""),
-                data.get("temp_simulated", ""),
-                data.get("risk_score", ""),
-                data.get("action", "")
-            ])
-
-        # Write JSONL record
-        record = {"timestamp": timestamp, "event_type": event_type, **data}
-        with open(self.jsonl_path, "a") as f:
-            f.write(json.dumps(record) + "\n")
+        row = {**data, "timestamp": timestamp, "event_type": event_type}
+        with self.csv_path.open("a", encoding="utf-8", newline="") as stream:
+            csv.writer(stream).writerow(row.get(field, "") for field in CSV_FIELDS)
+        with self.jsonl_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(row) + "\n")

@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import thermosched.sensors.backend as backend_module
 
 from thermosched.config import ConfigError, SchedulerConfig, SimulationConfig, load_config
 from thermosched.models import (
@@ -245,3 +246,51 @@ def test_measured_backend_rejects_non_boolean_pause_state() -> None:
 def test_direct_config_rejects_nonnumeric_initial_temperature_cleanly() -> None:
     with pytest.raises(ConfigError, match="initial temperatures must be finite"):
         SimulationConfig(initial_temps_c=("hot",))  # type: ignore[arg-type]
+
+
+def test_default_real_backend_refreshes_measured_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
+    inventories = iter(
+        (
+            SensorInventory((SensorReading("/sys/one", "package", "package", 65.0, "available"),)),
+            SensorInventory((SensorReading("/sys/one", "package", "package", 72.0, "available"),)),
+        )
+    )
+    monkeypatch.setattr(backend_module, "discover_linux_thermal_sensors", lambda: next(inventories))
+    selection = select_thermal_backend("real", (2,), SchedulerConfig())
+
+    frame = selection.sample_frame(1.0)
+
+    assert frame.measured_readings[0].temperature_c == 72.0
+    assert frame.core_snapshot.cores[0].thermal_kind is ThermalKind.RISK_ONLY
+
+
+def test_auto_backend_degrades_to_simulation_if_measured_input_disappears(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    inventories = iter(
+        (
+            SensorInventory((SensorReading("/sys/one", "package", "package", 65.0, "available"),)),
+            SensorInventory(()),
+        )
+    )
+    monkeypatch.setattr(backend_module, "discover_linux_thermal_sensors", lambda: next(inventories))
+    selection = select_thermal_backend("auto", (2,), SchedulerConfig())
+
+    with caplog.at_level("WARNING"):
+        frame = selection.sample_frame(1.0)
+
+    assert selection.name == "auto-simulate-fallback"
+    assert frame.measured_readings == ()
+    assert frame.core_snapshot.cores[0].thermal_kind is ThermalKind.SIMULATED_C
+    assert "falling back to simulation" in caplog.text
+
+
+@pytest.mark.parametrize(("field", "value"), [("sampled_at_s", "now"), ("duty_cycle", "full")])
+def test_simulator_rejects_nonnumeric_runtime_inputs_cleanly(field: str, value: str) -> None:
+    simulator = SimulatedThermalSensor((2,), SchedulerConfig())
+    arguments = {field: value}
+    sampled_at = arguments.pop("sampled_at_s", 0.0)
+
+    with pytest.raises(ValueError):
+        simulator.sample(sampled_at, **arguments)  # type: ignore[arg-type]
