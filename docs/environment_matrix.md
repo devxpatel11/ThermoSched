@@ -14,7 +14,7 @@ This is an evidence record, not a declaration that planned capabilities work. Ea
 
 | Member/machine | Sensor paths and provenance | Simulation selected | Child affinity set/readback/restore | Child pause/resume/restore | Live migration eligible | Notes or skip reason |
 | --- | --- | --- | --- | --- | --- | --- |
-| A | No host thermal sensor used; `simulated_c` assignment-coupled model | yes | passed: disposable child set/readback/full-mask restore | passed: bounded SIGSTOP/SIGCONT and SIGINT/SIGTERM restore | yes: 20 eligible CPUs, verified 0 to 1 migration | Earlier A3/A4 evidence; repeat after B/C integration before merge |
+| A | no `/sys` temperature inputs exposed; `simulated_c` used without a host-temperature claim | passed: B3 `simulate` backend | passed: disposable child set/readback/full-mask restore | passed: bounded 200 ms SIGSTOP/SIGCONT plus SIGINT/SIGTERM restore | yes: 20 eligible CPUs; verified migration with exact readback | 2026-10-09 A/B/C pipeline: migration and all-hot demos had 0 failures and restored all 20 CPUs; fixed-clock 300-second soak passed |
 | B | no `/sys` temperature inputs exposed; unavailable reported without fabricated data | passed: `auto-simulate-fallback`; deterministic 300-second fixed-clock soak | N/A: B1-B3 are read-only | N/A: B1-B3 are read-only | capability only: 20 eligible guest CPUs; actuation not tested by B1-B3 | Live B1→B2→B3 integration passed; real mode unsupported without sensors; guest CPUs are not Windows physical cores |
 | C | pending | pending | pending | pending | pending | pending |
 

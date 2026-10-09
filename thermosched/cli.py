@@ -16,6 +16,7 @@ import psutil
 from thermosched import __version__
 from thermosched.config import ConfigError, load_config
 from thermosched.logging.logger import EventLogger
+from thermosched.scheduler.actuator import LinuxActuator
 from thermosched.sensors import (
     ThermalSensorUnavailableError,
     discover_linux_thermal_sensors,
@@ -63,8 +64,13 @@ def _run_doctor() -> int:
     else:
         print("Thermal provenance: measured_c unavailable; simulated_c is the supported fallback")
     print(format_sensor_inventory(inventory))
-    print("Actuator capability: interface only on main; live affinity/pause/restore unavailable")
-    return 0 if platform.system() == "Linux" and bool(eligible) else 1
+    capabilities = LinuxActuator().capabilities()
+    print(
+        "Actuator capability: "
+        f"affinity={capabilities.affinity} pause_resume={capabilities.pause_resume} "
+        f"restore={capabilities.restore} reasons={capabilities.reasons}"
+    )
+    return 0 if platform.system() == "Linux" and bool(eligible) and capabilities.restore else 1
 
 
 def _stop_child(proc: subprocess.Popen[object]) -> None:
@@ -165,6 +171,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     launch.add_argument("--config", default="config/default.yaml", help="validated YAML configuration")
     launch.add_argument("workload_cmd", nargs=argparse.REMAINDER, help="command after --")
+
+    demo = subparsers.add_parser("demo", help="run the integrated A/B/C managed-child demonstration")
+    demo.add_argument("--scenario", choices=["migration", "all-hot"], required=True)
+    demo.add_argument("--config", type=Path, required=True)
+    demo.add_argument("--duration", type=float, default=5.0)
+    demo.add_argument("--output-dir", type=Path, default=Path("results"))
     return parser
 
 
@@ -175,6 +187,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_doctor()
     if args.command == "launch":
         return _run_launch(args)
+    if args.command == "demo":
+        if args.duration <= 0:
+            print("Error: --duration must be positive.", file=sys.stderr)
+            return 2
+        from thermosched.demo import run_demo
+
+        return run_demo(args.scenario, args.config, args.duration, args.output_dir)
     parser.print_help()
     return 0
 

@@ -16,7 +16,8 @@ from thermosched.models import (
     ThermalSnapshot,
 )
 from thermosched.scheduler.actuator import ActuationError, Actuator
-from thermosched.simulation import SimulatedThermalProvider
+from thermosched.sensors import select_thermal_backend
+from thermosched.sensors.base import SensorProvider
 
 
 class FakeClock:
@@ -106,6 +107,16 @@ class NullDashboard:
         pass
 
 
+class BrokenSink:
+    def emit(self, event: ControlEvent) -> None:
+        raise OSError("injected sink failure")
+
+
+class BrokenDashboard:
+    def render(self, event: ControlEvent, state: PidSchedulerState) -> None:
+        raise RuntimeError("injected dashboard failure")
+
+
 class FixedSensor:
     name = "simulation:fixed-clock-test"
     thermal_kind = ThermalKind.SIMULATED_C
@@ -118,7 +129,7 @@ class FixedSensor:
             sampled_at_s,
             tuple(
                 CoreSample(cpu, 90.0, temperature, ThermalKind.SIMULATED_C, 0.0)
-                for cpu, temperature in enumerate(self.temperatures)
+                for cpu, temperature in zip((2, 7), self.temperatures, strict=True)
             ),
             self.name,
         )
@@ -140,7 +151,7 @@ def target() -> ManagedProcess:
 
 
 def build_controller(
-    sensor: FixedSensor | SimulatedThermalProvider,
+    sensor: SensorProvider,
     telemetry: FakeTelemetry | BrokenTelemetry,
     actuator: FakeActuator,
     sink: CollectSink,
@@ -161,7 +172,7 @@ def build_controller(
     )
 
 
-def test_controller_maps_model_cpu_and_applies_verified_migration() -> None:
+def test_controller_applies_verified_guest_cpu_migration() -> None:
     clock = FakeClock()
     actuator = FakeActuator(2, (2, 7))
     sink = CollectSink()
@@ -173,7 +184,8 @@ def test_controller_maps_model_cpu_and_applies_verified_migration() -> None:
     assert sink.events[0].requested_mask == (7,)
     assert sink.events[0].observed_mask == (7,)
     assert sink.events[0].applied_action == "migrate"
-    assert "model_to_guest=((0, 2), (1, 7))" in sink.events[0].provenance
+    assert sink.events[0].model_to_guest == ((0, 2), (1, 7))
+    assert sink.events[0].thermal_provenance == "simulated_c"
     assert actuator.restored
 
 
@@ -221,11 +233,39 @@ def test_actuator_failure_is_logged_without_false_migration_state() -> None:
     assert controller.states[9999].last_migration_time_s is None
 
 
+def test_output_failures_do_not_block_safe_control_or_restoration(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    clock = FakeClock()
+    actuator = FakeActuator(2, (2, 7))
+    controller = Controller(
+        config=config(),
+        sensor=FixedSensor((84.0, 42.0)),
+        telemetry=FakeTelemetry(actuator, 9999),
+        actuator=actuator,
+        event_sink=BrokenSink(),
+        dashboard=BrokenDashboard(),
+        cpu_map=CpuIdMap(((0, 2), (1, 7))),
+        environment="WSL2 test guest_cpus=(2, 7)",
+        clock=clock,
+        wait=clock.wait,
+    )
+
+    with caplog.at_level("ERROR"):
+        summary = controller.run(target(), max_iterations=1)
+
+    assert summary.migrations == 1
+    assert summary.failures == 0
+    assert actuator.restored
+    assert "event sink failed" in caplog.text
+    assert "dashboard render failed" in caplog.text
+
+
 def test_fixed_clock_300_second_simulation_soak_is_separate_from_live_time() -> None:
     clock = FakeClock()
     actuator = FakeActuator(2, (2, 7))
     sink = CollectSink()
-    sensor = SimulatedThermalProvider(2, "migration", config(interval=0.5))
+    sensor = select_thermal_backend("simulate", (2, 7), config(interval=0.5))
     controller = build_controller(sensor, FakeTelemetry(actuator, 9999), actuator, sink, clock, interval=0.5)
 
     summary = controller.run(target(), max_duration_s=300.0)
@@ -234,4 +274,4 @@ def test_fixed_clock_300_second_simulation_soak_is_separate_from_live_time() -> 
     assert summary.iterations == 600
     assert summary.failures == 0
     assert actuator.restored
-    assert all("simulation:" in event.provenance for event in sink.events)
+    assert all("simulated:" in event.provenance for event in sink.events)

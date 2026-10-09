@@ -13,7 +13,7 @@ microbreak_ms: 200
 simulation:
   ambient_c: 42.0
   heat_gain_per_s: 2.0
-  cooling_per_s: 1.25
+  cooling_per_s: 0.0
   throttle_temp_c: 85.0
   initial_temps_c: [80.0, 81.0]
   initial_jitter_c: 0.0

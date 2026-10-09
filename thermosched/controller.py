@@ -1,22 +1,20 @@
-"""Dependency-injected controller loop for safe scheduling integration."""
+"""Dependency-injected controller loop joining the A, B, and C components."""
 
 from __future__ import annotations
 
-import json
 import logging
 import signal
-import sys
 import threading
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from types import FrameType
-from typing import IO, Protocol
-
-import psutil
+from typing import Protocol
 
 from thermosched.config import SchedulerConfig
+from thermosched.dashboard.terminal import TerminalDashboard
+from thermosched.logging.logger import EventLogger
 from thermosched.models import (
     CoreSample,
     CpuIdMap,
@@ -27,9 +25,19 @@ from thermosched.models import (
 )
 from thermosched.scheduler.actuator import Actuator
 from thermosched.scheduler.policy import PolicyResult, PolicyState, evaluate_policy, record_migration
+from thermosched.sensors.backend import ThermalBackendSelection
 from thermosched.sensors.base import SensorProvider
+from thermosched.telemetry import CpuTelemetryCollector
 
 logger = logging.getLogger(__name__)
+
+
+class _TelemetryPending(RuntimeError):
+    pass
+
+
+class _ManagedChildExited(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +65,7 @@ class Dashboard(Protocol):
 class ControlEvent:
     monotonic_s: float
     pid: int
+    current_cpu: int | None
     requested_action: str
     applied_action: str
     reason: str
@@ -64,10 +73,17 @@ class ControlEvent:
     requested_mask: tuple[int, ...] | None
     observed_mask: tuple[int, ...] | None
     provenance: str
+    thermal_provenance: str
+    thermal_value: float | None
+    risk_score: float | None
+    pace_ms: int
     sensor_backend: str
     telemetry_backend: str
     environment: str
     eligible_guest_cpus: tuple[int, ...]
+    model_to_guest: tuple[tuple[int, int], ...]
+    measured_sources: tuple[str, ...] = ()
+    cores: tuple[CoreSample, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,54 +107,84 @@ class RunSummary:
     restoration_error: str | None = None
 
 
-class PsutilTelemetryProvider:
-    """Minimal real guest telemetry adapter replaceable by the future B2 backend."""
+class CpuTelemetryProvider:
+    """Adapt B2 telemetry to the controller's managed-target interface."""
 
-    @property
-    def name(self) -> str:
-        return "psutil:guest-vcpu"
+    name = "b2:cpu-telemetry"
+
+    def __init__(self, collector: CpuTelemetryCollector) -> None:
+        self.collector = collector
 
     def sample(self, target: ManagedProcess) -> TelemetryFrame:
-        try:
-            process = psutil.Process(target.pid)
-            if target.create_time_s is None or process.create_time() != target.create_time_s:
-                raise RuntimeError("managed process identity changed")
-            affinity = tuple(sorted(process.cpu_affinity()))
-            current_cpu = affinity[0] if len(affinity) == 1 else process.cpu_num()
-            sample = ProcessSample(
-                pid=target.pid,
-                cpu_percent=process.cpu_percent(interval=None),
-                affinity=affinity,
-                current_cpu=current_cpu,
-                alive=process.is_running(),
-            )
-            return TelemetryFrame(sample, tuple(psutil.cpu_percent(interval=None, percpu=True)))
-        except (psutil.Error, OSError, RuntimeError) as exc:
-            logger.error("telemetry sample failed pid=%s: %s", target.pid, exc)
-            raise RuntimeError(f"telemetry sample failed for PID {target.pid}: {exc}") from exc
+        snapshot = self.collector.sample()
+        process = snapshot.process
+        if process is None:
+            raise RuntimeError("B2 telemetry has no registered managed child")
+        if process.pid != target.pid or process.original_affinity != target.original_affinity:
+            raise RuntimeError("B2 telemetry target does not match the actuator registration")
+        if process.status == "exited":
+            raise _ManagedChildExited(f"managed child PID {target.pid} exited")
+        if process.status == "priming":
+            raise _TelemetryPending("B2 process telemetry is priming")
+        sample = process.as_process_sample()
+        if sample is None:
+            raise RuntimeError(f"B2 process telemetry unavailable: {process.status}")
+        if snapshot.cpu_status == "priming":
+            raise _TelemetryPending("B2 per-CPU telemetry is priming")
+        if snapshot.cpu_status != "available":
+            raise RuntimeError("B2 per-CPU telemetry is unavailable")
+        utilization = tuple(
+            0.0 if cpu.utilization_pct is None else cpu.utilization_pct
+            for cpu in snapshot.per_cpu
+        )
+        return TelemetryFrame(sample, utilization)
 
 
-class JsonLineSink:
-    def __init__(self, stream: IO[str]) -> None:
-        self._stream = stream
+class EventLoggerSink:
+    """Write A4 events through C2's CSV/JSONL logger."""
+
+    def __init__(self, event_logger: EventLogger) -> None:
+        self.logger = event_logger
 
     def emit(self, event: ControlEvent) -> None:
-        self._stream.write(json.dumps(asdict(event), sort_keys=True) + "\n")
-        self._stream.flush()
+        data = asdict(event)
+        data["timestamp"] = event.monotonic_s
+        data["cpu_id"] = event.current_cpu
+        if event.thermal_provenance == "measured_c":
+            data["temp_measured"] = event.thermal_value
+        elif event.thermal_provenance == "simulated_c":
+            data["temp_simulated"] = event.thermal_value
+        self.logger.log_event("CONTROL_DECISION", data)
 
 
-class ConsoleDashboard:
-    def __init__(self, stream: IO[str] = sys.stdout) -> None:
-        self._stream = stream
+class TerminalDashboardSink:
+    """Render A4 snapshots through C2's provenance-aware terminal dashboard."""
+
+    def __init__(self, dashboard: TerminalDashboard) -> None:
+        self.dashboard = dashboard
 
     def render(self, event: ControlEvent, state: PidSchedulerState) -> None:
-        self._stream.write(
-            f"pid={event.pid} request={event.requested_action} applied={event.applied_action} "
-            f"reason={event.reason} provenance={event.provenance} "
-            f"backend={event.sensor_backend}/{event.telemetry_backend} "
-            f"guest_cpus={event.eligible_guest_cpus} paused={state.paused}\n"
+        status = f"{event.requested_action}->{event.applied_action}"
+        stats = [
+            {
+                "cpu_id": core.cpu_id,
+                "thermal_value": core.thermal_value,
+                "thermal_kind": core.thermal_kind,
+                "risk": core.risk,
+                "status": status if core.cpu_id == event.current_cpu else "candidate",
+            }
+            for core in event.cores
+        ]
+        self.dashboard.render(
+            stats,
+            active_mode=event.sensor_backend,
+            context={
+                "environment": event.environment,
+                "eligible_guest_cpus": event.eligible_guest_cpus,
+                "model_to_guest": event.model_to_guest,
+                "paused": state.paused,
+            },
         )
-        self._stream.flush()
 
 
 class Controller:
@@ -180,7 +226,7 @@ class Controller:
             return
         previous = {signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGTERM)}
 
-        def handle(signum: int, frame: FrameType | None) -> None:
+        def handle(signum: int, _frame: FrameType | None) -> None:
             logger.info("controller received signal=%s; requesting safe shutdown", signum)
             self._stopped_by_signal = True
             self._stop.set()
@@ -193,27 +239,38 @@ class Controller:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
 
-    def _map_snapshot(self, snapshot: ThermalSnapshot, telemetry: TelemetryFrame) -> ThermalSnapshot:
-        mapped: list[CoreSample] = []
-        for core in snapshot.cores:
-            guest_cpu = self.cpu_map.guest_cpu(core.cpu_id)
-            utilization = (
-                telemetry.per_cpu_utilization[guest_cpu]
-                if guest_cpu < len(telemetry.per_cpu_utilization)
-                else core.utilization_pct
+    def _sample_thermal(
+        self,
+        now_s: float,
+        telemetry: TelemetryFrame,
+        target: ManagedProcess,
+    ) -> tuple[ThermalSnapshot, tuple[str, ...]]:
+        if isinstance(self.sensor, ThermalBackendSelection):
+            utilization = {
+                cpu: telemetry.per_cpu_utilization[cpu]
+                for cpu in target.eligible_guest_cpus
+                if cpu < len(telemetry.per_cpu_utilization)
+            }
+            frame = self.sensor.sample_frame(
+                now_s,
+                utilization_by_cpu=utilization,
+                assigned_cpu=telemetry.process.current_cpu,
             )
-            mapped.append(replace(core, cpu_id=guest_cpu, utilization_pct=utilization))
-        return ThermalSnapshot(
-            snapshot.sampled_at_s,
-            tuple(mapped),
-            f"{snapshot.source};model_to_guest={self.cpu_map.pairs}",
-        )
+            snapshot = frame.core_snapshot
+            measured_sources = tuple(reading.source_path for reading in frame.measured_readings)
+        else:
+            snapshot = self.sensor.sample(now_s)
+            measured_sources = ()
+        snapshot_cpus = tuple(core.cpu_id for core in snapshot.cores)
+        if not snapshot_cpus or not set(snapshot_cpus).issubset(target.eligible_guest_cpus):
+            raise RuntimeError("thermal snapshot CPU IDs are outside the managed child's eligible guest mask")
+        return snapshot, measured_sources
 
     def _emit(self, event: ControlEvent, state: PidSchedulerState) -> None:
         try:
             self.event_sink.emit(event)
         except Exception as exc:
-            logger.error("event sink failed; event preserved in fallback log: %s event=%s", exc, event)
+            logger.error("event sink failed; controller continuing safely: %s event=%s", exc, event)
         try:
             self.dashboard.render(event, state)
         except Exception as exc:
@@ -227,24 +284,40 @@ class Controller:
         requested: str,
         applied: str,
         reason: str,
-        provenance: str,
+        current_cpu: int | None = None,
+        snapshot: ThermalSnapshot | None = None,
+        measured_sources: tuple[str, ...] = (),
         requested_mask: tuple[int, ...] | None = None,
         observed_mask: tuple[int, ...] | None = None,
+        pace_ms: int = 0,
     ) -> ControlEvent:
+        selected = snapshot.core(current_cpu) if snapshot is not None and current_cpu is not None else None
+        if selected is None and snapshot is not None and snapshot.cores:
+            selected = max(snapshot.cores, key=lambda core: core.risk)
+        kinds = {core.thermal_kind.value for core in snapshot.cores} if snapshot is not None else set()
+        thermal_provenance = next(iter(kinds)) if len(kinds) == 1 else ("mixed" if kinds else "unavailable")
         return ControlEvent(
             monotonic_s=now_s,
             pid=target.pid,
+            current_cpu=current_cpu,
             requested_action=requested,
             applied_action=applied,
             reason=reason,
             original_mask=target.original_affinity,
             requested_mask=requested_mask,
             observed_mask=observed_mask,
-            provenance=provenance,
+            provenance="unavailable" if snapshot is None else snapshot.source,
+            thermal_provenance=thermal_provenance,
+            thermal_value=None if selected is None else selected.thermal_value,
+            risk_score=None if selected is None else selected.risk,
+            pace_ms=pace_ms,
             sensor_backend=self.sensor.name,
             telemetry_backend=self.telemetry.name,
             environment=self.environment,
             eligible_guest_cpus=target.eligible_guest_cpus,
+            model_to_guest=self.cpu_map.pairs,
+            measured_sources=measured_sources,
+            cores=() if snapshot is None else snapshot.cores,
         )
 
     def _wait(self, delay_s: float) -> bool:
@@ -263,6 +336,10 @@ class Controller:
     ) -> RunSummary:
         if max_duration_s is not None and max_duration_s <= 0:
             raise ValueError("max_duration_s must be positive")
+        if max_iterations is not None and max_iterations < 1:
+            raise ValueError("max_iterations must be positive")
+        if self.cpu_map.eligible_guest_cpus != target.eligible_guest_cpus:
+            raise ValueError("controller CPU map must match the managed child's eligible guest mask")
         state = PidSchedulerState()
         self.states[target.pid] = state
         started = self.clock()
@@ -280,15 +357,9 @@ class Controller:
                         break
                     if max_iterations is not None and iterations >= max_iterations:
                         break
-                    provenance = "unavailable"
                     try:
                         telemetry = self.telemetry.sample(target)
-                        if hasattr(self.sensor, "observe_assignment") and telemetry.process.current_cpu is not None:
-                            model_cpu = self.cpu_map.model_cpu(telemetry.process.current_cpu)
-                            duty_cycle = min(1.0, telemetry.process.cpu_percent / 100.0)
-                            self.sensor.observe_assignment(model_cpu, duty_cycle)  # type: ignore[attr-defined]
-                        snapshot = self._map_snapshot(self.sensor.sample(now_s), telemetry)
-                        provenance = snapshot.source
+                        snapshot, measured_sources = self._sample_thermal(now_s, telemetry, target)
                         result: PolicyResult = evaluate_policy(
                             snapshot,
                             telemetry.process,
@@ -297,6 +368,22 @@ class Controller:
                             now_s=now_s,
                             eligible_guest_cpus=target.eligible_guest_cpus,
                         )
+                    except _ManagedChildExited:
+                        logger.info("managed child exited pid=%s; stopping controller", target.pid)
+                        break
+                    except _TelemetryPending as exc:
+                        event = self._event(
+                            now_s=now_s,
+                            target=target,
+                            requested="stay",
+                            applied="skipped",
+                            reason=str(exc),
+                        )
+                        self._emit(event, state)
+                        iterations += 1
+                        next_sample += self.config.sampling_interval_s
+                        self._wait(max(0.0, next_sample - self.clock()))
+                        continue
                     except Exception as exc:
                         failures += 1
                         logger.error("controller input degraded pid=%s: %s", target.pid, exc)
@@ -306,7 +393,6 @@ class Controller:
                             requested="stay",
                             applied="skipped",
                             reason=f"component_failure:{type(exc).__name__}",
-                            provenance=provenance,
                         )
                         self._emit(event, state)
                         iterations += 1
@@ -332,7 +418,14 @@ class Controller:
                             migrations += 1
                         elif decision.action is DecisionAction.PACE:
                             paused = True
-                            self.states[target.pid] = replace(state, paused=True)
+                            self.states[target.pid] = PidSchedulerState(
+                                last_core=state.last_core,
+                                last_migration_time_s=state.last_migration_time_s,
+                                residency_s=state.residency_s,
+                                consecutive_hot_count=state.consecutive_hot_count,
+                                paused=True,
+                                policy=state.policy,
+                            )
                             self.actuator.pace(target, decision.pace_ms, self.config.max_microbreak_ms)
                             paused = False
                             applied = "pace"
@@ -344,10 +437,9 @@ class Controller:
                         reason = f"actuator_failure:{exc}"
                         logger.error("requested action failed pid=%s action=%s: %s", target.pid, requested, exc)
 
-                    observed_cpu = policy_state.observed_cpu
                     residency = max(0.0, now_s - policy_state.residency_started_s)
                     state = PidSchedulerState(
-                        last_core=observed_cpu,
+                        last_core=policy_state.observed_cpu,
                         last_migration_time_s=policy_state.last_migration_s,
                         residency_s=residency,
                         consecutive_hot_count=policy_state.consecutive_hot_samples,
@@ -355,15 +447,23 @@ class Controller:
                         policy=policy_state,
                     )
                     self.states[target.pid] = state
+                    event_cpu = (
+                        observed_mask[0]
+                        if applied == "migrate" and observed_mask is not None and len(observed_mask) == 1
+                        else telemetry.process.current_cpu
+                    )
                     event = self._event(
                         now_s=now_s,
                         target=target,
                         requested=requested,
                         applied=applied,
                         reason=reason,
-                        provenance=result.snapshot.source,
+                        current_cpu=event_cpu,
+                        snapshot=result.snapshot,
+                        measured_sources=measured_sources,
                         requested_mask=requested_mask,
                         observed_mask=observed_mask,
+                        pace_ms=decision.pace_ms,
                     )
                     self._emit(event, state)
                     iterations += 1
