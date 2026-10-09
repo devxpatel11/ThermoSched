@@ -1,6 +1,8 @@
-# Deterministic migration fixture: model CPU positions map to the managed child's
-# eligible guest CPU mask at runtime.
-sampling_interval_s: 0.5
+# Scenario: demo_migration
+# Purpose: migrate from a hot primary model CPU to a safer candidate.
+# Model position 0 is the initial target and later positions are candidates;
+# they map to the managed child's eligible guest CPU mask at runtime.
+sampling_interval_s: 1.0
 warm_temp_c: 60.0
 high_temp_c: 75.0
 critical_temp_c: 82.0

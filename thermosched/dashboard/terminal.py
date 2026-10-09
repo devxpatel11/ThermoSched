@@ -1,29 +1,44 @@
-import sys
-from typing import Dict, Any, List
+"""Terminal rendering for provenance-labelled thermal telemetry."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+
+def _thermal_text(stat: Mapping[str, Any]) -> str:
+    raw_provenance = stat.get("thermal_kind", stat.get("provenance", "unknown"))
+    provenance = str(getattr(raw_provenance, "value", raw_provenance))
+    value = stat.get("thermal_value", stat.get("temp"))
+    if value is None:
+        return f"N/A [{provenance}]"
+    if provenance in {"measured_c", "simulated_c"}:
+        return f"{float(value):.1f} C [{provenance}]"
+    if provenance == "risk_only":
+        return f"{float(value):.2f} [risk_only]"
+    return f"{value} [{provenance}]"
 
 
 class TerminalDashboard:
-    """Simple terminal dashboard display for real-time thermal telemetry."""
+    """Render guest CPU state without presenting unknown values as Celsius."""
 
-    def __init__(self, num_cpus: int = 4):
+    def __init__(self, num_cpus: int = 4) -> None:
+        if num_cpus < 1:
+            raise ValueError("num_cpus must be positive")
         self.num_cpus = num_cpus
 
-    def render(self, cpu_stats: List[Dict[str, Any]], active_mode: str = "simulate") -> None:
+    def render(self, cpu_stats: Sequence[Mapping[str, Any]], active_mode: str = "simulate") -> None:
         output = [
-            f"\033[H\033[J",  # Clear screen ansi escape
-            f"=== ThermoSched Active Controller ({active_mode.upper()}) ===",
-            "-" * 50,
-            f"{'CPU':<6} | {'Temp (°C)':<10} | {'Risk Score':<12} | {'Status':<10}",
-            "-" * 50,
+            "\033[H\033[J",
+            f"=== ThermoSched ({active_mode.upper()}) ===",
+            "-" * 78,
+            f"{'Guest CPU':<10} | {'Thermal value and provenance':<35} | {'Risk':<8} | {'Status':<10}",
+            "-" * 78,
         ]
-
         for stat in cpu_stats:
-            cpu_id = stat.get("cpu_id", 0)
-            temp = stat.get("temp", 0.0)
-            risk = stat.get("risk", 0.0)
-            status = stat.get("status", "NORMAL")
-            output.append(f"CPU {cpu_id:<2} | {temp:<10.1f} | {risk:<12.2f} | {status:<10}")
-
-        output.append("-" * 50)
-        output.append("Press Ctrl+C to terminate pacing run.")
+            output.append(
+                f"{stat.get('cpu_id', '?')!s:<10} | {_thermal_text(stat):<35} | "
+                f"{float(stat.get('risk', 0.0)):<8.2f} | {stat.get('status', 'UNKNOWN')!s:<10}"
+            )
+        output.extend(("-" * 78, "Press Ctrl+C to stop the managed run."))
         print("\n".join(output))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -16,6 +17,9 @@ from thermosched.sensors.linux_thermal import (
     discover_linux_thermal_sensors,
 )
 from thermosched.sensors.simulated import SimulatedThermalSensor
+
+
+logger = logging.getLogger(__name__)
 
 
 class ThermalSensorUnavailableError(RuntimeError):
@@ -60,9 +64,11 @@ class ThermalBackendSelection(SensorProvider):
         self.mode = mode
         self.eligible_guest_cpus = cpus
         self.config = config
+        self._seed = seed
         self._simulated: SimulatedThermalSensor | None = None
         self._measured: tuple[SensorReading, ...] = ()
         self._thermal_prior_c: float | None = None
+        self._refresh_inventory = sensor_inventory is None
         self.last_frame: ThermalBackendFrame | None = None
 
         if mode == "simulate":
@@ -77,20 +83,44 @@ class ThermalBackendSelection(SensorProvider):
             if reading.granularity in {"package", "core", "zone"}
         )
         if usable:
-            self._measured = usable
-            # Core IDs cannot safely be inferred from physical-core or package
-            # labels, so sensor values remain separate evidence. The hottest
-            # useful source contributes a normalized thermal prior to derived
-            # per-guest-CPU risk; no measured Celsius is copied into CoreSample.
-            self._thermal_prior_c = max(reading.temperature_c for reading in usable if reading.temperature_c is not None)
+            self._set_measured(usable)
             self._name = f"{mode}-sensor-derived-risk"
         elif mode == "real":
+            logger.error("real thermal backend unavailable: no readable package/core/zone input")
             raise ThermalSensorUnavailableError(
                 "real mode requested but no readable package/core/zone thermal input is available"
             )
         else:
+            logger.warning("auto thermal backend falling back to explicit simulation: no usable sensor")
             self._simulated = SimulatedThermalSensor(cpus, config, seed=seed)
             self._name = "auto-simulate-fallback"
+
+    def _set_measured(self, usable: tuple[SensorReading, ...]) -> None:
+        self._measured = usable
+        # Core IDs cannot safely be inferred from physical-core or package
+        # labels, so values remain evidence and only influence derived risk.
+        self._thermal_prior_c = max(
+            reading.temperature_c for reading in usable if reading.temperature_c is not None
+        )
+
+    def _refresh_measured_inputs(self) -> None:
+        inventory = discover_linux_thermal_sensors()
+        usable = tuple(
+            reading
+            for reading in inventory.available
+            if reading.granularity in {"package", "core", "zone"}
+        )
+        if usable:
+            self._set_measured(usable)
+            return
+        if self.mode == "real":
+            logger.error("real thermal backend lost all readable package/core/zone inputs")
+            raise ThermalSensorUnavailableError("real thermal input became unavailable during sampling")
+        logger.warning("auto thermal backend lost its measured input; falling back to simulation")
+        self._measured = ()
+        self._thermal_prior_c = None
+        self._simulated = SimulatedThermalSensor(self.eligible_guest_cpus, self.config, seed=self._seed)
+        self._name = "auto-simulate-fallback"
 
     @property
     def name(self) -> str:
@@ -109,6 +139,8 @@ class ThermalBackendSelection(SensorProvider):
         duty_cycle: float = 1.0,
         paused: bool = False,
     ) -> ThermalBackendFrame:
+        if self._simulated is None and self._refresh_inventory:
+            self._refresh_measured_inputs()
         if self._simulated is not None:
             snapshot = self._simulated.sample(
                 sampled_at_s,
@@ -144,9 +176,19 @@ class ThermalBackendSelection(SensorProvider):
         duty_cycle: float,
         paused: bool,
     ) -> ThermalSnapshot:
-        if not math.isfinite(sampled_at_s) or sampled_at_s < 0:
+        if (
+            isinstance(sampled_at_s, bool)
+            or not isinstance(sampled_at_s, (int, float))
+            or not math.isfinite(sampled_at_s)
+            or sampled_at_s < 0
+        ):
             raise ValueError("sampled_at_s must be finite and non-negative")
-        if not math.isfinite(duty_cycle) or not 0 <= duty_cycle <= 1:
+        if (
+            isinstance(duty_cycle, bool)
+            or not isinstance(duty_cycle, (int, float))
+            or not math.isfinite(duty_cycle)
+            or not 0 <= duty_cycle <= 1
+        ):
             raise ValueError("duty_cycle must be between 0 and 1")
         if not isinstance(paused, bool):
             raise ValueError("paused must be a boolean")

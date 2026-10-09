@@ -1,12 +1,15 @@
-# Deterministic all-hot fixture: model CPU positions map to the managed child's
-# eligible guest CPU mask at runtime.
-sampling_interval_s: 0.5
+# Scenario: demo_all_hot
+# Purpose: bounded micro-break pacing when every candidate is hot.
+# CPU positions map to the managed child's eligible guest mask at runtime; the
+# original four-CPU sketch [0, 1, 2, 3] must never be treated as host CPU IDs.
+sampling_interval_s: 1.0
 warm_temp_c: 60.0
-high_temp_c: 75.0
+high_temp_c: 80.0
 critical_temp_c: 82.0
 confirmation_samples: 1
 min_residency_s: 0.0
 migration_cooldown_s: 0.0
+microbreak_ms: 200
 simulation:
   ambient_c: 42.0
   heat_gain_per_s: 2.0

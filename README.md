@@ -4,7 +4,7 @@ ThermoSched is an Operating Systems project for a Linux user-space CPU thermal-p
 
 ## Current status
 
-The shared repository foundation, D1-A1 contracts, D2-A2 pure policy, D1-B1 Linux thermal sensor discovery, D2-B2 CPU telemetry, and D3-B3 thermal simulation/fallback are implemented. Workload generators, actuation, orchestration, and demo scripts remain assigned work in [docs/work_plan.md](docs/work_plan.md). WSL E0 environment evidence still needs to be recorded by each member.
+The shared repository foundation, A1/A2 contracts and policy, B1–B3 sensors/telemetry/simulation, and C1–C3 workloads/logging/dashboard/child launcher are implemented. Live actuation and the end-to-end controller are not yet on `main`; those remain A3/A4 work in [docs/work_plan.md](docs/work_plan.md). WSL E0 evidence still needs to be recorded by each member.
 
 Do not treat a command from the project playbook as implemented until the corresponding files are merged into `main` and CI passes.
 
@@ -52,9 +52,9 @@ Routine commands require no root privileges. `config/default.yaml` contains demo
 
 ## Linux thermal sensor discovery
 
-`thermosched.sensors.discover_linux_thermal_sensors()` performs read-only discovery under `/sys/class/thermal` and `/sys/class/hwmon`. It returns each source path, sensor name, availability, Celsius value, and a conservative scope label (`package`, `core`, `zone`, or `unknown`). The parser recognizes the Linux thermal-zone and hwmon `temp*_input` millidegree-Celsius semantics; missing, inaccessible, and malformed inputs are reported without inventing readings. `format_sensor_inventory()` renders the same paths and scope for a future doctor/debug command.
+`thermosched.sensors.discover_linux_thermal_sensors()` performs read-only discovery under `/sys/class/thermal` and `/sys/class/hwmon`. It returns each source path, sensor name, availability, Celsius value, and a conservative scope label (`package`, `core`, `zone`, or `unknown`). The parser recognizes the Linux thermal-zone and hwmon `temp*_input` millidegree-Celsius semantics; missing, inaccessible, and malformed inputs are reported without inventing readings. `python -m thermosched doctor` renders the source paths, scope, provenance, guest CPU mask, actual runtime versions, and current actuator status.
 
-WSL may expose no thermal sensors, or only package/zone-level readings. Such a reading is not per-core or Windows-host temperature. Explicit simulation must continue to work without sensors; a future real-mode command should report a clear unsupported-source error when no suitable sensor is available. Current sensor discovery returns source-aware inventory; it does not yet adapt package readings into the per-core `ThermalSnapshot` contract.
+WSL may expose no thermal sensors, or only package/zone-level readings. Such a reading is not per-core or Windows-host temperature. Explicit simulation continues to work without sensors; real mode reports a clear unsupported-source error when no suitable sensor is available. Sensor discovery returns source-aware inventory and does not relabel package readings as measured per-core temperatures.
 
 ## CPU telemetry
 
@@ -64,7 +64,11 @@ WSL may expose no thermal sensors, or only package/zone-level readings. Such a r
 
 `SimulatedThermalSensor` evolves per-guest-CPU simulated Celsius state using per-CPU utilization, configured heat/cooling rates, assigned guest CPU, pacing duty cycle, and pause state. Initial temperatures are listed in model order and mapped to the actual eligible guest mask; runtime CPU IDs are guest IDs. State can be reset before a replay or comparison run. A seed reproduces configured initial jitter; fixed inputs, timestamps, and config make replay repeatable. This does not make live utilization or wall-clock runs deterministic.
 
-`select_thermal_backend()` supports `simulate`, `auto`, and `real`. Explicit simulation never probes or requires sensors. Auto mode uses readable package/core/zone sensors as measured evidence and produces separate `risk_only` core values; raw Celsius readings remain attached to the `ThermalBackendFrame.measured_readings` field. It does not label package or unmapped core sensors as per-core measurements. If no usable sensor exists, auto announces `auto-simulate-fallback`; real mode raises `ThermalSensorUnavailableError`. The named `config/demo_migration.yaml` and `config/demo_all_hot.yaml` fixtures define deterministic hot/cool and all-hot starting conditions. Their model CPU positions map to whatever eligible guest IDs are supplied at runtime.
+`select_thermal_backend()` supports `simulate`, `auto`, and `real`. Explicit simulation never probes or requires sensors. Auto and real modes refresh default Linux discovery for every sample. They retain raw readable package/core/zone Celsius evidence separately and produce `risk_only` core values; they never label package or unmapped core sensors as measured per-core temperatures. Auto switches to `auto-simulate-fallback` if no usable sensor exists or the measured source disappears. Real mode raises `ThermalSensorUnavailableError`. The named `config/demo_migration.yaml` and `config/demo_all_hot.yaml` fixtures define deterministic hot/cool and all-hot starting conditions. Their model CPU positions map to whatever eligible guest IDs are supplied at runtime.
+
+## Workloads, logging, and terminal output
+
+`workloads/cpu_burn.py` and `workloads/bursty.py` are disposable wall-clock workloads. They validate finite durations and are not deterministic replay tools. `EventLogger` records thermal provenance, backend, eligible guest CPUs, and requested versus applied actions in CSV and JSONL. `TerminalDashboard` labels simulated Celsius, measured Celsius, derived risk, and unknown values separately.
 
 ## Pure scheduling policy
 
@@ -74,14 +78,20 @@ Risk combines normalized thermal state, CPU utilization, and positive thermal tr
 
 Candidate CPU IDs are WSL guest virtual CPUs. Policy output does not prove physical Windows-core placement, and risk remains a modeled/derived scheduling signal rather than measured host temperature. A controller must map fixture IDs to the managed child's original eligible mask and call `record_migration()` only after successful affinity readback.
 
-## Planned command contract
+## CLI contract
 
-Only `python -m thermosched --help` and `--version` are implemented by A1. The following commands remain targets for their assigned implementation tasks:
+The doctor and managed-child launcher are implemented. `baseline` launches without a thermal backend; `simulate`, `auto`, and `real` validate and report the selected backend. Until A3/A4 reach `main`, the launcher does not migrate or pace the child and reports actuation as unavailable.
 
 ```bash
 python -m thermosched doctor
+python -m thermosched launch --mode baseline --config config/default.yaml -- python workloads/cpu_burn.py --seconds 10
 python -m thermosched launch --mode simulate --config config/demo_migration.yaml -- python workloads/cpu_burn.py --seconds 60
 python -m thermosched launch --mode simulate --config config/demo_all_hot.yaml -- python workloads/cpu_burn.py --seconds 60
+```
+
+These later experiment commands remain planned:
+
+```bash
 bash scripts/run_demo.sh
 python scripts/compare_runs.py --baseline logs/baseline.csv --aware logs/aware.csv
 ```
@@ -98,3 +108,4 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 - D1-C1: complete
 - D2-C2: complete
 - D3-C3: complete
+- B1–B3/C1–C3 integration review: complete — focused WSL tests: 57 passed; full suite: 88 passed. Named scenarios, live child sampling, SIGTERM cleanup, actual CLI launches, fixed-clock soak, and simulation benchmark passed.
