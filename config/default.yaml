@@ -22,3 +22,6 @@ simulation:
   heat_gain_per_s: 2.0
   cooling_per_s: 1.25
   throttle_temp_c: 85.0
+  initial_temps_c: []
+  initial_jitter_c: 0.0
+  seed: 0

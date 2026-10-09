@@ -4,7 +4,7 @@ ThermoSched is an Operating Systems project for a Linux user-space CPU thermal-p
 
 ## Current status
 
-The shared repository foundation, D1-A1 contracts, D2-A2 pure policy, D1-B1 Linux thermal sensor discovery, and D2-B2 CPU telemetry are implemented. Workload generators, scenario fixtures, actuation, orchestration, and demo scripts remain assigned work in [docs/work_plan.md](docs/work_plan.md). WSL E0 environment evidence still needs to be recorded by each member.
+The shared repository foundation, D1-A1 contracts, D2-A2 pure policy, D1-B1 Linux thermal sensor discovery, D2-B2 CPU telemetry, and D3-B3 thermal simulation/fallback are implemented. Workload generators, actuation, orchestration, and demo scripts remain assigned work in [docs/work_plan.md](docs/work_plan.md). WSL E0 environment evidence still needs to be recorded by each member.
 
 Do not treat a command from the project playbook as implemented until the corresponding files are merged into `main` and CI passes.
 
@@ -60,6 +60,12 @@ WSL may expose no thermal sensors, or only package/zone-level readings. Such a r
 
 `thermosched.telemetry.CpuTelemetryCollector` produces one timestamped snapshot with guest logical-CPU utilization, eligible CPU IDs, and optional state for a registered same-user direct child. The first nonblocking psutil sample is marked `priming` and has no utilization value. Process utilization can exceed 100% for multi-threaded workloads and is kept unclamped. Missing processes, PID reuse, and access failures have explicit statuses. Original and current affinity masks are observational; this collector does not change affinity or pause processes. `TemperatureTrend` calculates per-CPU Celsius-per-second changes from timestamped readings, while `ExponentialMovingAverage` supports rolling intensity. WSL CPU IDs describe guest virtual CPUs, not Windows physical-core topology.
 
+## Simulation and sensor fallback
+
+`SimulatedThermalSensor` evolves per-guest-CPU simulated Celsius state using per-CPU utilization, configured heat/cooling rates, assigned guest CPU, pacing duty cycle, and pause state. Initial temperatures are listed in model order and mapped to the actual eligible guest mask; runtime CPU IDs are guest IDs. State can be reset before a replay or comparison run. A seed reproduces configured initial jitter; fixed inputs, timestamps, and config make replay repeatable. This does not make live utilization or wall-clock runs deterministic.
+
+`select_thermal_backend()` supports `simulate`, `auto`, and `real`. Explicit simulation never probes or requires sensors. Auto mode uses readable package/core/zone sensors as measured evidence and produces separate `risk_only` core values; raw Celsius readings remain attached to the `ThermalBackendFrame.measured_readings` field. It does not label package or unmapped core sensors as per-core measurements. If no usable sensor exists, auto announces `auto-simulate-fallback`; real mode raises `ThermalSensorUnavailableError`. The named `config/demo_migration.yaml` and `config/demo_all_hot.yaml` fixtures define deterministic hot/cool and all-hot starting conditions. Their model CPU positions map to whatever eligible guest IDs are supplied at runtime.
+
 ## Pure scheduling policy
 
 `thermosched.scheduler.policy.evaluate_policy()` accepts a fixed thermal snapshot, process sample, policy state, monotonic timestamp, configuration, and eligible guest CPU mask. It returns a decision and next policy state without reading hardware, sleeping, or calling OS APIs.
@@ -86,12 +92,9 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 
 - D1-A1: complete — `python -m pytest -q`
 - D2-A2: complete — `python -m pytest -q tests/test_policy.py`, then `python -m pytest -q`
-
-## Progress Checklist
-
-- [x] D1-C1: complete
-
-## Progress Checklist
-- [x] D1-C1: complete
-- [x] D2-C2: complete
-- [x] D3-C3: complete
+- D1-B1: complete — `.venv/bin/python -m pytest -q tests/test_sensors.py`, then `.venv/bin/python -m pytest -q`; WSL reported no thermal inputs and the backend degraded explicitly.
+- D2-B2: complete — `.venv/bin/python -m pytest -q tests/test_telemetry.py` (11 passed), then `.venv/bin/python -m pytest -q` (58 passed); live WSL child telemetry preserved the original 20-CPU guest mask.
+- D3-B3: complete — focused B3 tests: 22 passed; combined B1–B3 tests: 39 passed; full suite: 72 passed. WSL auto-fallback, named migration/all-hot actions, a deterministic 300-second fixed-clock soak, and live B1→B2→B3 integration passed.
+- D1-C1: complete
+- D2-C2: complete
+- D3-C3: complete
