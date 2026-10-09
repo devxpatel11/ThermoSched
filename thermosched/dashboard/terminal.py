@@ -27,14 +27,29 @@ class TerminalDashboard:
             raise ValueError("num_cpus must be positive")
         self.num_cpus = num_cpus
 
-    def render(self, cpu_stats: Sequence[Mapping[str, Any]], active_mode: str = "simulate") -> None:
+    def render(
+        self,
+        cpu_stats: Sequence[Mapping[str, Any]],
+        active_mode: str = "simulate",
+        context: Mapping[str, Any] | None = None,
+    ) -> None:
         output = [
             "\033[H\033[J",
             f"=== ThermoSched ({active_mode.upper()}) ===",
-            "-" * 78,
-            f"{'Guest CPU':<10} | {'Thermal value and provenance':<35} | {'Risk':<8} | {'Status':<10}",
-            "-" * 78,
         ]
+        if context:
+            output.append(
+                f"environment={context.get('environment', 'unknown')} "
+                f"eligible_guest_cpus={context.get('eligible_guest_cpus', ())} "
+                f"paused={context.get('paused', False)}"
+            )
+        output.extend(
+            (
+                "-" * 78,
+                f"{'Guest CPU':<10} | {'Thermal value and provenance':<35} | {'Risk':<8} | {'Status':<10}",
+                "-" * 78,
+            )
+        )
         for stat in cpu_stats:
             output.append(
                 f"{stat.get('cpu_id', '?')!s:<10} | {_thermal_text(stat):<35} | "

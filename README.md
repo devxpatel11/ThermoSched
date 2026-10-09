@@ -4,7 +4,7 @@ ThermoSched is an Operating Systems project for a Linux user-space CPU thermal-p
 
 ## Current status
 
-The shared repository foundation, A1/A2 contracts and policy, B1–B3 sensors/telemetry/simulation, and C1–C3 workloads/logging/dashboard/child launcher are implemented. Live actuation and the end-to-end controller are not yet on `main`; those remain A3/A4 work in [docs/work_plan.md](docs/work_plan.md). WSL E0 evidence still needs to be recorded by each member.
+The shared repository foundation, A1–A4 contracts/policy/actuation/controller, B1–B3 sensors/telemetry/simulation, and C1–C3 workloads/logging/dashboard/child launcher are implemented. A4 uses the merged B/C modules directly; it does not carry parallel telemetry, simulation, logging, dashboard, or workload implementations. WSL E0 evidence still needs to be recorded by each member.
 
 Do not treat a command from the project playbook as implemented until the corresponding files are merged into `main` and CI passes.
 
@@ -70,6 +70,14 @@ WSL may expose no thermal sensors, or only package/zone-level readings. Such a r
 
 `workloads/cpu_burn.py` and `workloads/bursty.py` are disposable wall-clock workloads. They validate finite durations and are not deterministic replay tools. `EventLogger` records thermal provenance, backend, eligible guest CPUs, and requested versus applied actions in CSV and JSONL. `TerminalDashboard` labels simulated Celsius, measured Celsius, derived risk, and unknown values separately.
 
+## Managed Linux actuation and A4 integration
+
+`LinuxActuator` registers only a same-user direct child launched by ThermoSched. It records the PID, creation time, parent, owner, and full original guest affinity mask; every operation rechecks identity to reject PID reuse. PID 0, PID 1, the controller, its parent shell, unregistered processes, and CPU IDs outside the captured eligible mask are rejected. Affinity changes require exact readback. Bounded pacing uses `SIGSTOP` followed by `SIGCONT`.
+
+`Controller` injects B2 telemetry, the B3 thermal backend, A2 policy, A3 actuation, the C2 logger, and the C2 dashboard. It samples on monotonic time, maintains per-PID state, distinguishes requested from applied actions, and degrades to skipped control if an input component fails. Cleanup resumes and restores the managed child after normal completion, handled errors, SIGINT, and SIGTERM. SIGKILL, WSL termination, Windows shutdown, or VM failure cannot run in-process cleanup.
+
+The fixed-clock five-minute soak uses synthetic time and inputs. Live WSL runs use wall-clock telemetry and are evaluated by observed events and affinity readback; a seed does not make them identical.
+
 ## Pure scheduling policy
 
 `thermosched.scheduler.policy.evaluate_policy()` accepts a fixed thermal snapshot, process sample, policy state, monotonic timestamp, configuration, and eligible guest CPU mask. It returns a decision and next policy state without reading hardware, sleeping, or calling OS APIs.
@@ -80,13 +88,13 @@ Candidate CPU IDs are WSL guest virtual CPUs. Policy output does not prove physi
 
 ## CLI contract
 
-The doctor and managed-child launcher are implemented. `baseline` launches without a thermal backend; `simulate`, `auto`, and `real` validate and report the selected backend. Until A3/A4 reach `main`, the launcher does not migrate or pace the child and reports actuation as unavailable.
+The doctor, child launcher, and integrated demo are implemented. `launch --mode baseline` runs a child without thermal control; other launch modes validate and report the selected backend. The `demo` command runs the complete controller against its own disposable child and writes CSV, JSONL, and summary evidence under the selected output directory.
 
 ```bash
 python -m thermosched doctor
 python -m thermosched launch --mode baseline --config config/default.yaml -- python workloads/cpu_burn.py --seconds 10
-python -m thermosched launch --mode simulate --config config/demo_migration.yaml -- python workloads/cpu_burn.py --seconds 60
-python -m thermosched launch --mode simulate --config config/demo_all_hot.yaml -- python workloads/cpu_burn.py --seconds 60
+python -m thermosched demo --scenario migration --config config/demo_migration.yaml --duration 5
+python -m thermosched demo --scenario all-hot --config config/demo_all_hot.yaml --duration 5
 ```
 
 These later experiment commands remain planned:
@@ -102,6 +110,8 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 
 - D1-A1: complete — `python -m pytest -q`
 - D2-A2: complete — `python -m pytest -q tests/test_policy.py`, then `python -m pytest -q`
+- D3-A3: complete — `.venv/bin/python -m pytest -q tests/test_linux_actuator.py` (8 passed), then the full suite; live WSL child affinity, bounded pacing, SIGINT/SIGTERM cleanup, and exact full-mask restoration passed.
+- D4-A4: complete — focused controller/CLI/integration tests passed, the 300-second fixed-clock soak passed, and `.venv/bin/python -m pytest -q` reported 106 passed. Both live named demos completed with zero failures and restored the managed child's 20-CPU original mask.
 - D1-B1: complete — `.venv/bin/python -m pytest -q tests/test_sensors.py`, then `.venv/bin/python -m pytest -q`; WSL reported no thermal inputs and the backend degraded explicitly.
 - D2-B2: complete — `.venv/bin/python -m pytest -q tests/test_telemetry.py` (11 passed), then `.venv/bin/python -m pytest -q` (58 passed); live WSL child telemetry preserved the original 20-CPU guest mask.
 - D3-B3: complete — focused B3 tests: 22 passed; combined B1–B3 tests: 39 passed; full suite: 72 passed. WSL auto-fallback, named migration/all-hot actions, a deterministic 300-second fixed-clock soak, and live B1→B2→B3 integration passed.

@@ -1,6 +1,7 @@
 """ThermoSched public package contracts."""
 
 from thermosched.config import SchedulerConfig, load_config
+from thermosched.controller import Controller, ControlEvent, PidSchedulerState, RunSummary
 from thermosched.models import (
     ActuatorCapabilities,
     CoreSample,
@@ -14,18 +15,26 @@ from thermosched.models import (
     ThermalKind,
     ThermalSnapshot,
 )
+from thermosched.scheduler.actuator import ActuationError, LinuxActuator, SafetyViolation
 
 __all__ = [
     "ActuatorCapabilities",
+    "ActuationError",
+    "Controller",
+    "ControlEvent",
     "CoreSample",
     "CpuIdMap",
     "Decision",
     "DecisionAction",
     "EnvironmentMetadata",
     "ManagedProcess",
+    "LinuxActuator",
+    "PidSchedulerState",
     "ProcessSample",
     "ReplayFrame",
     "SchedulerConfig",
+    "RunSummary",
+    "SafetyViolation",
     "ThermalKind",
     "ThermalSnapshot",
     "load_config",

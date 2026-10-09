@@ -19,8 +19,16 @@ CSV_FIELDS = (
     "risk_score",
     "backend",
     "eligible_guest_cpus",
+    "model_to_guest",
     "requested_action",
     "applied_action",
+    "pace_ms",
+    "reason",
+    "original_mask",
+    "requested_mask",
+    "observed_mask",
+    "telemetry_backend",
+    "environment",
 )
 
 
