@@ -94,7 +94,7 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 - D2-A2: complete — `python -m pytest -q tests/test_policy.py`, then `python -m pytest -q`
 - D1-B1: complete — `.venv/bin/python -m pytest -q tests/test_sensors.py`, then `.venv/bin/python -m pytest -q`; WSL reported no thermal inputs and the backend degraded explicitly.
 - D2-B2: complete — `.venv/bin/python -m pytest -q tests/test_telemetry.py` (11 passed), then `.venv/bin/python -m pytest -q` (58 passed); live WSL child telemetry preserved the original 20-CPU guest mask.
-- D3-B3: complete — `.venv/bin/python -m pytest -q tests/test_simulated_sensors.py tests/test_config.py` (20 passed), then `.venv/bin/python -m pytest -q` (70 passed). Fixed-input migration and all-hot fixtures returned `migrate` and bounded `pace` respectively.
+- D3-B3: complete — focused B3 tests: 22 passed; combined B1–B3 tests: 39 passed; full suite: 72 passed. WSL auto-fallback, named migration/all-hot actions, a deterministic 300-second fixed-clock soak, and live B1→B2→B3 integration passed.
 - D1-C1: complete
 - D2-C2: complete
 - D3-C3: complete

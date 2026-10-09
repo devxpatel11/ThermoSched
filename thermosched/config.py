@@ -88,7 +88,12 @@ class SimulationConfig:
             raise ConfigError("simulation initial_jitter_c exceeds the thermal bounds")
         initial_temps = tuple(self.initial_temps_c)
         object.__setattr__(self, "initial_temps_c", initial_temps)
-        if any(isinstance(value, bool) or not math.isfinite(value) for value in initial_temps):
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            for value in initial_temps
+        ):
             raise ConfigError("simulation initial temperatures must be finite")
         if any(not self.ambient_c <= value <= self.throttle_temp_c for value in initial_temps):
             raise ConfigError("simulation initial temperatures must be within ambient and throttle bounds")

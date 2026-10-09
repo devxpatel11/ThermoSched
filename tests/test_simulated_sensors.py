@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from thermosched.config import SchedulerConfig, SimulationConfig, load_config
+from thermosched.config import ConfigError, SchedulerConfig, SimulationConfig, load_config
 from thermosched.models import (
     CoreSample,
     DecisionAction,
@@ -227,3 +227,21 @@ def test_unknown_sensor_scope_is_not_treated_as_meaningful_in_auto_mode() -> Non
     assert selection.name == "auto-simulate-fallback"
     assert frame.measured_readings == ()
     assert frame.core_snapshot.cores[0].thermal_kind is ThermalKind.SIMULATED_C
+
+
+def test_measured_backend_rejects_non_boolean_pause_state() -> None:
+    reading = SensorReading("/sys/thermal/temp", "package", "package", 70.0, "available")
+    selection = select_thermal_backend(
+        "real",
+        (2,),
+        SchedulerConfig(),
+        sensor_inventory=SensorInventory((reading,)),
+    )
+
+    with pytest.raises(ValueError, match="paused must be a boolean"):
+        selection.sample_frame(0.0, paused=1)  # type: ignore[arg-type]
+
+
+def test_direct_config_rejects_nonnumeric_initial_temperature_cleanly() -> None:
+    with pytest.raises(ConfigError, match="initial temperatures must be finite"):
+        SimulationConfig(initial_temps_c=("hot",))  # type: ignore[arg-type]

@@ -148,6 +148,8 @@ class ThermalBackendSelection(SensorProvider):
             raise ValueError("sampled_at_s must be finite and non-negative")
         if not math.isfinite(duty_cycle) or not 0 <= duty_cycle <= 1:
             raise ValueError("duty_cycle must be between 0 and 1")
+        if not isinstance(paused, bool):
+            raise ValueError("paused must be a boolean")
         utilization = dict(utilization_by_cpu or {})
         if any(cpu not in self.eligible_guest_cpus for cpu in utilization):
             raise ValueError("utilization contains a CPU outside the eligible guest mask")

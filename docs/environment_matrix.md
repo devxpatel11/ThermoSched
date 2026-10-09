@@ -15,7 +15,7 @@ This is an evidence record, not a declaration that planned capabilities work. Ea
 | Member/machine | Sensor paths and provenance | Simulation selected | Child affinity set/readback/restore | Child pause/resume/restore | Live migration eligible | Notes or skip reason |
 | --- | --- | --- | --- | --- | --- | --- |
 | A | pending | pending | pending | pending | pending | pending |
-| B | no `/sys` temperature inputs exposed; unavailable reported without fabricated data | yes: explicit fallback required; B3 backend pending | N/A: B1/B2 are read-only | N/A: B1/B2 are read-only | capability only: 20 eligible guest CPUs; actuation not tested by B1/B2 | Integration validation machine; WSL guest CPUs are not Windows physical cores |
+| B | no `/sys` temperature inputs exposed; unavailable reported without fabricated data | passed: `auto-simulate-fallback`; deterministic 300-second fixed-clock soak | N/A: B1-B3 are read-only | N/A: B1-B3 are read-only | capability only: 20 eligible guest CPUs; actuation not tested by B1-B3 | Live B1→B2→B3 integration passed; real mode unsupported without sensors; guest CPUs are not Windows physical cores |
 | C | pending | pending | pending | pending | pending | pending |
 
 At least one demonstration machine must have two eligible guest CPUs and passing child-affinity probes for live migration evidence. A one-CPU machine may run pure policy fixtures with a mocked actuator and real bounded pacing only when its pause/resume probe passes.
