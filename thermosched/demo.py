@@ -26,12 +26,31 @@ from thermosched.controller import (
 )
 from thermosched.dashboard.terminal import TerminalDashboard
 from thermosched.logging.logger import EventLogger
+from thermosched.metrics import build_run_metadata
 from thermosched.models import CpuIdMap
 from thermosched.scheduler.actuator import LinuxActuator
 from thermosched.sensors import discover_linux_thermal_sensors, select_thermal_backend
 from thermosched.telemetry import CpuTelemetryCollector
 
 logger = logging.getLogger(__name__)
+
+
+def _read_progress_events(path: Path) -> list[dict[str, object]]:
+    """Read complete JSONL progress records emitted by the managed workload."""
+
+    records: list[dict[str, object]] = []
+    with path.open(encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"invalid workload progress at line {line_number}") from exc
+            if not isinstance(record, dict):
+                raise ValueError(f"workload progress at line {line_number} is not an object")
+            records.append(record)
+    return records
 
 
 def _is_wsl() -> bool:
@@ -85,8 +104,18 @@ def run_demo(scenario: str, config_path: Path, duration_s: float, output_dir: Pa
         return 2
     config = load_config(config_path)
     workload = Path(__file__).parents[1] / "workloads" / "cpu_burn.py"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    run_id = f"{scenario}-{time.time_ns()}"
+    workload_progress_path = output_dir / f"{run_id}-workload.jsonl"
     child = subprocess.Popen(
-        [sys.executable, str(workload), "--seconds", str(duration_s + 10.0)],
+        [
+            sys.executable,
+            str(workload),
+            "--seconds",
+            str(duration_s + 10.0),
+            "--progress-jsonl",
+            str(workload_progress_path),
+        ],
     )
     actuator = LinuxActuator()
     target = None
@@ -106,9 +135,23 @@ def run_demo(scenario: str, config_path: Path, duration_s: float, output_dir: Pa
         sensor = select_thermal_backend("simulate", target.eligible_guest_cpus, config)
 
         actuator.set_affinity(target, (target.eligible_guest_cpus[0],))
-        output_dir.mkdir(parents=True, exist_ok=True)
-        run_id = f"{scenario}-{time.time_ns()}"
         event_logger = EventLogger(output_dir, run_id)
+        run_metadata = build_run_metadata(
+            config_path=config_path,
+            config=config,
+            eligible_guest_cpus=target.eligible_guest_cpus,
+            backend=sensor.name,
+            source_provenance=sensor.thermal_kind.value,
+            workload="cpu_burn",
+        )
+        event_logger.log_event(
+            "RUN_METADATA",
+            {
+                "pid": target.pid,
+                "eligible_guest_cpus": target.eligible_guest_cpus,
+                "metadata": run_metadata,
+            },
+        )
         controller = Controller(
             config=config,
             sensor=sensor,
@@ -119,8 +162,33 @@ def run_demo(scenario: str, config_path: Path, duration_s: float, output_dir: Pa
             cpu_map=cpu_map,
             environment=_environment(target.eligible_guest_cpus),
         )
+        controller_cpu_started = time.process_time()
         summary = controller.run(target, max_duration_s=duration_s)
+        controller_overhead_s = max(0.0, time.process_time() - controller_cpu_started)
         restored_mask = actuator.get_affinity(target)
+        if child.poll() is None:
+            child.terminate()
+            child.wait(timeout=5)
+        try:
+            for progress_event in _read_progress_events(workload_progress_path):
+                event_type = progress_event.pop("event_type", "WORKLOAD_PROGRESS")
+                event_logger.log_event(str(event_type), progress_event)
+        except (OSError, ValueError) as exc:
+            logger.warning("could not include workload progress in run log %s: %s", workload_progress_path, exc)
+        cleanup_status = "restored" if restored_mask == target.original_affinity else "failed"
+        event_logger.log_event(
+            "RUN_CLEANUP",
+            {
+                "pid": target.pid,
+                "eligible_guest_cpus": target.eligible_guest_cpus,
+                "cleanup_status": cleanup_status,
+                "restored": cleanup_status == "restored",
+                "restoration_error": summary.restoration_error,
+                "controller_overhead_s": controller_overhead_s,
+                "original_mask": target.original_affinity,
+                "observed_mask": restored_mask,
+            },
+        )
         results_path = output_dir / f"{run_id}-summary.json"
         result = {
             **asdict(summary),
@@ -136,6 +204,9 @@ def run_demo(scenario: str, config_path: Path, duration_s: float, output_dir: Pa
             "original_mask": target.original_affinity,
             "restored_mask": restored_mask,
             "restored": restored_mask == target.original_affinity,
+            "cleanup_status": cleanup_status,
+            "run_metadata": run_metadata,
+            "controller_overhead_s": controller_overhead_s,
             "events_csv": str(event_logger.csv_path),
             "events_jsonl": str(event_logger.jsonl_path),
         }
