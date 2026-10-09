@@ -85,6 +85,7 @@ def build_run_metadata(
         "seed": getattr(simulation, "seed", None),
         "backend": backend,
         "source_provenance": source_provenance,
+        "thermal_provenance": source_provenance,
         "workload": workload,
         "workload_backend": "c1:cpu-burn" if workload == "cpu_burn" else workload,
         "commit": commit,
@@ -238,7 +239,7 @@ def _time_above(
 ) -> float | None:
     if threshold is None:
         return None
-    by_source: dict[str, list[tuple[float, float]]] = {}
+    hottest_by_timestamp: dict[float, float] = {}
     for timestamp, event, core in samples:
         provenance = (core or {}).get("thermal_kind", event.get("thermal_provenance"))
         if provenance != kind:
@@ -249,17 +250,15 @@ def _time_above(
         numeric = _number(value)
         if numeric is None:
             continue
-        source = str((core or {}).get("cpu_id", event.get("cpu_id", "run")))
-        by_source.setdefault(source, []).append((timestamp, numeric))
-    if not by_source:
+        hottest_by_timestamp[timestamp] = max(hottest_by_timestamp.get(timestamp, numeric), numeric)
+    if not hottest_by_timestamp:
         return None
-    total = 0.0
-    for points in by_source.values():
-        points.sort()
-        for (start, value), (end, _next_value) in zip(points, points[1:]):
-            if end > start and value > threshold:
-                total += end - start
-    return total
+    points = sorted(hottest_by_timestamp.items())
+    return sum(
+        end - start
+        for (start, value), (end, _next_value) in zip(points, points[1:])
+        if end > start and value > threshold
+    )
 
 
 def summarize_run(
@@ -317,7 +316,9 @@ def summarize_run(
     throughput = units_done / runtime if units_done is not None and runtime and runtime > 0 else None
 
     requested = {action: 0 for action in ("stay", "migrate", "pace")}
-    applied: dict[str, int] = {action: 0 for action in ("stay", "migrate", "pace")}
+    applied: dict[str, int] = {
+        action: 0 for action in ("stay", "migrate", "pace", "skipped", "failed")
+    }
     successful_readbacks = 0
     failed_actions = 0
     pace_ms = 0.0

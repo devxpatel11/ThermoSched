@@ -73,6 +73,13 @@ def test_summarize_separates_simulated_temperature_risk_and_action_metrics(tmp_p
     assert metrics["time_above_high_threshold_simulated_s"] == 2.0
     assert metrics["average_eligible_guest_cpu_utilization_pct"] == 35.5
     assert metrics["requested_decisions"] == {"stay": 0, "migrate": 1, "pace": 1}
+    assert metrics["applied_actions"] == {
+        "stay": 0,
+        "migrate": 1,
+        "pace": 1,
+        "skipped": 0,
+        "failed": 0,
+    }
     assert metrics["successful_affinity_readbacks"] == 1
     assert metrics["pacing_count"] == 1
     assert metrics["pacing_requested_time_s"] == 0.1
@@ -92,6 +99,19 @@ def test_compare_flags_incompatible_configs_and_retains_missing_values(tmp_path:
     assert result["compatible"] is False
     assert "config_hash differs" in result["mismatches"]
     assert result["delta_aware_minus_baseline"]["peak_measured_per_core_c"] is None
+
+
+def test_summarize_counts_degraded_and_failed_actions(tmp_path: Path) -> None:
+    skipped = _event(1.0, 60.0)
+    skipped["applied_action"] = "skipped"
+    failed = _event(2.0, 60.0, "migrate")
+    failed["applied_action"] = "failed"
+
+    metrics = summarize_run(_write_log(tmp_path / "degraded.jsonl", [skipped, failed]))["metrics"]
+
+    assert metrics["applied_actions"]["skipped"] == 1
+    assert metrics["applied_actions"]["failed"] == 1
+    assert metrics["failed_actions"] == 1
 
 
 def test_metrics_cli_writes_json_and_strict_mode_flags_missing_compatibility(tmp_path: Path) -> None:
@@ -120,6 +140,16 @@ def test_time_above_threshold_preserves_missing_sensor_data(tmp_path: Path) -> N
     assert summary["metrics"]["peak_measured_per_core_c"] is None
     assert summary["metrics"]["peak_simulated_c"] is None
     assert summary["metrics"]["time_above_high_threshold_simulated_s"] is None
+
+
+def test_time_above_threshold_is_elapsed_time_not_sum_across_hot_cpus(tmp_path: Path) -> None:
+    events = [_event(1.0, 80.0), _event(2.0, 81.0)]
+    for event in events:
+        event["cores"][1].update(thermal_value=82.0, thermal_kind="simulated_c")
+
+    metrics = summarize_run(_write_log(tmp_path / "multi-core.jsonl", events))["metrics"]
+
+    assert metrics["time_above_high_threshold_simulated_s"] == 1.0
 
 
 def test_measured_core_temperature_never_combines_with_simulated_or_risk_values(tmp_path: Path) -> None:
@@ -162,6 +192,7 @@ def test_run_metadata_records_provenance_and_leaves_user_supplied_versions_missi
     assert metadata["seed"] == 9
     assert metadata["backend"] == "simulate"
     assert metadata["source_provenance"] == "simulated_c"
+    assert metadata["thermal_provenance"] == "simulated_c"
     assert metadata["python_version"]
     assert metadata["psutil_version"]
     assert "windows_version" in metadata
