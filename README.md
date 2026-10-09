@@ -70,6 +70,19 @@ WSL may expose no thermal sensors, or only package/zone-level readings. Such a r
 
 `workloads/cpu_burn.py` and `workloads/bursty.py` are disposable wall-clock workloads. They validate finite durations and are not deterministic replay tools. `EventLogger` records thermal provenance, backend, eligible guest CPUs, and requested versus applied actions in CSV and JSONL. `TerminalDashboard` labels simulated Celsius, measured Celsius, derived risk, and unknown values separately.
 
+## Run metrics and comparisons
+
+`python -m thermosched.metrics` compares a baseline JSONL/CSV event log with an aware run and writes compact JSON or CSV. JSONL is preferred because it retains nested per-core samples and run metadata. The integrated demo records Windows/WSL version strings from `THERMOSCHED_WINDOWS_VERSION` and `THERMOSCHED_WSL_VERSION` when supplied, plus Ubuntu/kernel, Python/psutil, eligible guest mask, config hash, seed, backend, thermal provenance, workload, and source commit. `cpu_burn.py --progress-jsonl` records cumulative iterations; the integrated demo includes that progress and measured controller CPU time in its JSONL run log.
+
+Temperature outputs stay separate: `peak_measured_per_core_c` includes only explicitly per-core `measured_c` samples, `peak_simulated_c` includes only simulated Celsius, and `peak_derived_risk` is unitless. Package/zone measurements and missing values are never converted into per-core temperatures. Time above threshold is elapsed run time where at least one matching CPU sample is above the threshold; it is not summed across CPUs. Durations use seconds, temperatures use Celsius, CPU utilization uses percent, pacing request time uses seconds, and throughput uses workload units per second. `pacing_requested_time_s` sums successful `pace_ms` requests and does not claim to be a separate wall-clock measurement. CSV-only logs retain the older fixed event fields, so metadata, nested per-core utilization, workload progress, and controller overhead unavailable in a CSV remain `null`.
+
+```bash
+python -m thermosched.metrics --baseline results/baseline.jsonl --aware results/aware.jsonl --format json --output results/comparison.json --high-threshold-c 75
+python -m thermosched.metrics --baseline results/baseline.jsonl --aware results/aware.jsonl --format csv --output results/comparison.csv --high-threshold-c 75
+```
+
+The comparison flags mismatched environment, guest CPU mask, config hash, threshold, sampling interval, workload, or seed. `--require-compatible` exits with status 2 unless these fields are present and match. Deltas are arithmetic comparisons only; simulated temperature deltas do not represent host thermal improvement. For Windows host version values, set `THERMOSCHED_WINDOWS_VERSION` and `THERMOSCHED_WSL_VERSION` before running the demo when they cannot be detected from Ubuntu.
+
 ## Managed Linux actuation and A4 integration
 
 `LinuxActuator` registers only a same-user direct child launched by ThermoSched. It records the PID, creation time, parent, owner, and full original guest affinity mask; every operation rechecks identity to reject PID reuse. PID 0, PID 1, the controller, its parent shell, unregistered processes, and CPU IDs outside the captured eligible mask are rejected. Affinity changes require exact readback. Bounded pacing uses `SIGSTOP` followed by `SIGCONT`.
@@ -97,11 +110,10 @@ python -m thermosched demo --scenario migration --config config/demo_migration.y
 python -m thermosched demo --scenario all-hot --config config/demo_all_hot.yaml --duration 5
 ```
 
-These later experiment commands remain planned:
+The end-to-end experiment driver remains planned for D5-B5/D5-C5:
 
 ```bash
 bash scripts/run_demo.sh
-python scripts/compare_runs.py --baseline logs/baseline.csv --aware logs/aware.csv
 ```
 
 The final README will be reconciled against the frozen implementation by D5-C5. Until then, each PR updates only the commands and status it actually changes.
@@ -112,6 +124,7 @@ The final README will be reconciled against the frozen implementation by D5-C5. 
 - D2-A2: complete — `python -m pytest -q tests/test_policy.py`, then `python -m pytest -q`
 - D3-A3: complete — `.venv/bin/python -m pytest -q tests/test_linux_actuator.py` (8 passed), then the full suite; live WSL child affinity, bounded pacing, SIGINT/SIGTERM cleanup, and exact full-mask restoration passed.
 - D4-A4: complete — focused controller/CLI/integration tests passed, the 300-second fixed-clock soak passed, and `.venv/bin/python -m pytest -q` reported 106 passed. Both live named demos completed with zero failures and restored the managed child's 20-CPU original mask.
+- D4-B4: complete — `.venv/bin/python -m pytest -q tests/test_metrics.py` (11 passed), then `.venv/bin/python -m pytest -q` (117 passed). A live WSL migration log passed strict compatibility parsing with provenance, workload throughput, action/readback counts, elapsed threshold time, controller overhead, and restored cleanup intact.
 - D1-B1: complete — `.venv/bin/python -m pytest -q tests/test_sensors.py`, then `.venv/bin/python -m pytest -q`; WSL reported no thermal inputs and the backend degraded explicitly.
 - D2-B2: complete — `.venv/bin/python -m pytest -q tests/test_telemetry.py` (11 passed), then `.venv/bin/python -m pytest -q` (58 passed); live WSL child telemetry preserved the original 20-CPU guest mask.
 - D3-B3: complete — focused B3 tests: 22 passed; combined B1–B3 tests: 39 passed; full suite: 72 passed. WSL auto-fallback, named migration/all-hot actions, a deterministic 300-second fixed-clock soak, and live B1→B2→B3 integration passed.
